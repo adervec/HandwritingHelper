@@ -111,6 +111,8 @@
         <div class="seg"><button id="style-print">Printing</button><button id="style-cursive">Cursive</button></div></div>
       <div class="opt"><span class="flab">Mode</span>
         <div class="seg"><button id="mode-single">Single hand</button><button id="mode-mirror">Mirror prime</button></div></div>
+      <div class="opt"><span class="flab">Screen</span>
+        <div class="seg"><button id="or-portrait">Portrait</button><button id="or-landscape">Landscape</button><button id="or-auto">Auto</button></div></div>
     </div>
     <p id="mode-hint"></p>
   </div>
@@ -468,11 +470,21 @@ const MIRROR_TIP = "Write the dominant line slowly enough that the copy can matc
 // ---------- options state ----------
 const $ = id => document.getElementById(id);
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const prefs = Object.assign({ hand: "R", style: "print", mode: "single" }, JSON.parse(localStorage.getItem("hwh-prefs") || "{}"));
+const prefs = Object.assign({ hand: "R", style: "print", mode: "single", orient: "portrait" }, JSON.parse(localStorage.getItem("hwh-prefs") || "{}"));
 const other = h => h === "R" ? "L" : "R";
 
+function applyOrient() {
+  // ponytail: lock() only sticks in the installed app (and never on iOS) — the
+  // browser tab rejects it and keeps auto-rotate, nothing more we can do there
+  try {
+    if (prefs.orient === "auto") screen.orientation.unlock();
+    else screen.orientation.lock(prefs.orient + "-primary").catch(() => {});
+  } catch (e) {}
+}
 function syncOptions() {
   localStorage.setItem("hwh-prefs", JSON.stringify(prefs));
+  for (const v of ["portrait", "landscape", "auto"]) $("or-" + v).classList.toggle("on", prefs.orient === v);
+  applyOrient();
   $("hand-R").classList.toggle("on", prefs.hand === "R");
   $("hand-L").classList.toggle("on", prefs.hand === "L");
   $("style-print").classList.toggle("on", prefs.style === "print");
@@ -489,6 +501,8 @@ for (const [id, k, v] of [["hand-R", "hand", "R"], ["hand-L", "hand", "L"],
   ["mode-single", "mode", "single"], ["mode-mirror", "mode", "mirror"]]) {
   $(id).onclick = () => { prefs[k] = v; syncOptions(); if (cur.img) runAnalysis(cur.img, true); };
 }
+for (const v of ["portrait", "landscape", "auto"])
+  $("or-" + v).onclick = () => { prefs.orient = v; syncOptions(); };
 syncOptions();
 
 // ---------- upload flow ----------
