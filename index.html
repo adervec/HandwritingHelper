@@ -94,6 +94,22 @@
   }
   .hidden { display: none; }
   #err { color: var(--ink-2); }
+  summary { cursor: pointer; font-weight: 600; }
+  summary::marker { color: var(--ink-muted); }
+  #drive-setup summary { font-weight: 400; font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+  #drive-setup ol { padding-left: 20px; color: var(--ink-2); font-size: 13px; }
+  #drive-setup li { margin: 5px 0; }
+  #drive-list { display: grid; gap: 6px; margin-top: 10px; }
+  .filerow {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    width: 100%; text-align: left; font-size: 13px;
+  }
+  .filerow.done { color: var(--ink-muted); }
+  input[type="text"] {
+    font: inherit; font-size: 13px; padding: 4px 7px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1);
+  }
+  @media (pointer: coarse) { input[type="text"] { font-size: 16px; padding: 7px 9px; } }
 </style>
 </head>
 <body>
@@ -124,9 +140,36 @@
   </div>
   <p id="err" class="hidden"></p>
 
+  <details class="card" id="drive-card">
+    <summary>Google Drive scans</summary>
+    <p class="subline">Scan a page with the Drive app, then pull it in here — PDFs and photos both work.</p>
+    <div class="fieldrow" style="margin-top:10px">
+      <span class="flab">Folder link</span>
+      <input type="text" id="drive-folder" placeholder="paste the Drive folder link" style="flex:1;min-width:170px">
+      <button class="act" id="drive-scan">Scan folder</button>
+    </div>
+    <p class="subline" id="drive-status"></p>
+    <div id="drive-list"></div>
+    <details id="drive-setup">
+      <summary>Set up access (once)</summary>
+      <ol>
+        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud credentials</a> and pick or create a project.</li>
+        <li>In APIs &amp; Services → Library, enable the <b>Google Drive API</b>.</li>
+        <li>On the OAuth consent screen, choose External and add your own address as a test user.</li>
+        <li>Credentials → Create credentials → OAuth client ID → Web application. Under Authorized JavaScript origins add <code>https://adervec.github.io</code>.</li>
+        <li>Paste the client ID below. It stays on this device.</li>
+      </ol>
+      <div class="fieldrow">
+        <input type="text" id="drive-client" placeholder="…apps.googleusercontent.com" style="flex:1;min-width:200px">
+        <button class="act" id="drive-save">Save</button>
+      </div>
+    </details>
+  </details>
+
   <section id="result" class="card hidden">
     <h2>Analysis</h2>
     <canvas id="preview"></canvas>
+    <p class="subline hidden" id="srcline"></p>
     <p class="subline" id="slantline"></p>
     <div id="scorebox"></div>
     <ul id="tips"></ul>
@@ -195,6 +238,7 @@
 if ("serviceWorker" in navigator && location.protocol === "https:")
   navigator.serviceWorker.register("sw.js").catch(() => {}); // offline shell + installability
 const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
+const esc = s => String(s).replace(/[<>&"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 
 // ---------- image analysis ----------
 function otsu(gray) {
@@ -431,6 +475,93 @@ function parseDuration(text) {
   return null;
 }
 
+// ---------- Google Drive: pull in pages scanned with the Drive app ----------
+const DRIVE = Object.assign({ clientId: "", folder: "", imported: [] },
+  JSON.parse(localStorage.getItem("hwh-drive") || "{}"));
+const saveDrive = () => localStorage.setItem("hwh-drive", JSON.stringify(DRIVE));
+// ponytail: takes a pasted folder link or a bare id — the id is the long token in the URL
+const folderId = s => (String(s || "").match(/[-\w]{20,}/) || [""])[0];
+
+let driveTok = null;
+function driveAuth() {
+  if (driveTok && driveTok.exp > Date.now() + 60000) return Promise.resolve(driveTok.t);
+  if (!DRIVE.clientId) return Promise.reject(new Error("Add your Google client ID under Set up access first."));
+  return (window.google?.accounts?.oauth2 ? Promise.resolve() : loadScript("https://accounts.google.com/gsi/client"))
+    .then(() => new Promise((ok, no) => {
+      google.accounts.oauth2.initTokenClient({
+        client_id: DRIVE.clientId,
+        scope: "https://www.googleapis.com/auth/drive.readonly",
+        callback: r => {
+          if (!r.access_token) return no(new Error("Google didn't return access — try again."));
+          driveTok = { t: r.access_token, exp: Date.now() + (r.expires_in - 60) * 1000 };
+          ok(r.access_token);
+        },
+        error_callback: () => no(new Error("Sign-in was cancelled.")),
+      }).requestAccessToken();
+    }));
+}
+async function driveGet(path, params) {
+  const t = await driveAuth();
+  const r = await fetch("https://www.googleapis.com/drive/v3/" + path + "?" + new URLSearchParams(params),
+    { headers: { Authorization: "Bearer " + t } });
+  if (r.status === 401 || r.status === 403) {
+    driveTok = null;
+    throw new Error("Drive refused access. Check the folder is in this Google account, then scan again.");
+  }
+  if (!r.ok) throw new Error("Drive returned error " + r.status + ".");
+  return r;
+}
+const driveList = id => driveGet("files", {
+  q: `'${id}' in parents and trashed=false and (mimeType contains 'image/' or mimeType='application/pdf')`,
+  fields: "files(id,name,mimeType,createdTime)", orderBy: "createdTime desc", pageSize: "50",
+}).then(r => r.json()).then(j => j.files || []);
+
+// Drive's scanner saves PDFs, so render the page to a canvas the analyzer can read
+async function pdfPage(buf, n) {
+  if (!window.pdfjsLib) {
+    await loadScript("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  }
+  const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise; // getDocument consumes the buffer
+  const page = await pdf.getPage(Math.min(n, pdf.numPages));
+  const base = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: Math.min(3, 1600 / base.width) }); // ponytail: 1600px wide is plenty downstream
+  const c = document.createElement("canvas");
+  c.width = vp.width; c.height = vp.height;
+  await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+  return { canvas: c, pages: pdf.numPages };
+}
+
+let driveFiles = [], driveBuf = null;
+function renderDriveList() {
+  $("drive-list").innerHTML = driveFiles.map((f, i) => {
+    const done = DRIVE.imported.some(k => k.startsWith(f.id));
+    return `<button class="act filerow${done ? " done" : ""}" data-i="${i}"><span>${esc(f.name)}</span>` +
+      `<span class="d">${new Date(f.createdTime).toLocaleDateString()}${done ? " · saved ✓" : ""}</span></button>`;
+  }).join("");
+  $("drive-list").querySelectorAll("button").forEach(b => b.onclick = () => driveOpen(driveFiles[+b.dataset.i], 1));
+}
+async function driveOpen(f, page) {
+  const st = $("drive-status");
+  st.textContent = `Loading ${f.name}…`;
+  try {
+    if (driveBuf?.id !== f.id) driveBuf = { id: f.id, buf: await (await driveGet("files/" + f.id, { alt: "media" })).arrayBuffer() };
+    const t = new Date(f.createdTime).getTime();
+    if (f.mimeType === "application/pdf") {
+      const { canvas, pages } = await pdfPage(driveBuf.buf, page);
+      useSource(canvas, t, { drive: f, page, pages });
+    } else {
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([driveBuf.buf], { type: f.mimeType }));
+      await new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error("Couldn't read that file as an image.")); img.src = url; });
+      URL.revokeObjectURL(url);
+      useSource(img, t, { drive: f, page: 1, pages: 1 });
+    }
+    st.textContent = "";
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { st.textContent = e.message; }
+}
+
 // ---------- storage ----------
 const KEY = "hwh-sessions";
 function loadSessions() {
@@ -527,13 +658,14 @@ window.addEventListener("paste", e => {
 });
 function handleFile(file) {
   const img = new Image();
-  img.onload = () => {
-    URL.revokeObjectURL(img.src);
-    cur = { img, photoT: file.lastModified || Date.now() };
-    runAnalysis(img);
-  };
+  img.onload = () => { URL.revokeObjectURL(img.src); useSource(img, file.lastModified || Date.now()); };
   img.onerror = () => showErr("Couldn't read that file as an image.");
   img.src = URL.createObjectURL(file);
+}
+// one entry point for every source: local file, paste, or Drive (image or rendered PDF page)
+function useSource(src, t, meta = {}) {
+  cur = { img: src, photoT: t, drive: meta.drive, page: meta.page || 1, pages: meta.pages || 1 };
+  runAnalysis(src);
 }
 function showErr(msg) { const e = $("err"); e.textContent = msg; e.classList.remove("hidden"); }
 
@@ -608,6 +740,16 @@ function runAnalysis(img, keepOcr) {
   }
   $("tips").innerHTML = tips.map(t => `<li>${t}</li>`).join("");
 
+  const sl = $("srcline");
+  sl.classList.toggle("hidden", !cur.drive);
+  if (cur.drive) {
+    sl.innerHTML = esc(cur.drive.name) + (cur.pages > 1
+      ? ` · page <select id="pdf-page">` +
+        Array.from({ length: cur.pages }, (_, i) => `<option${i + 1 === cur.page ? " selected" : ""}>${i + 1}</option>`).join("") +
+        `</select> of ${cur.pages}`
+      : "");
+    if (cur.pages > 1) $("pdf-page").onchange = e => driveOpen(cur.drive, +e.target.value);
+  }
   $("photo-date").textContent = "(" + new Date(cur.photoT).toLocaleDateString() + ")";
   if (!keepOcr) {
     $("ocr-radio").disabled = true;
@@ -627,7 +769,7 @@ $("ocr-btn").onclick = async () => {
   st.textContent = "Reading page… (first run downloads the OCR engine)";
   $("ocr-btn").disabled = true;
   try {
-    const data = await ocrPage(cur.r.canvas);
+    const data = await ocrPage(cur.img || cur.r.canvas); // full-res source reads better than the analyzer's downscale
     cur.ocr = {
       date: parseOcrDate(data.text),
       dur: parseDuration(data.text),
@@ -672,6 +814,11 @@ $("save-btn").onclick = () => {
   const s = loadSessions();
   s.push({ t, style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
   saveSessions(s);
+  if (cur.drive) { // remember which scans are already logged, per page
+    DRIVE.imported = [...new Set([...DRIVE.imported, cur.drive.id + "#" + cur.page])].slice(-500);
+    saveDrive();
+    renderDriveList();
+  }
   $("save-btn").disabled = true;
   $("save-btn").textContent = "Saved ✓";
   renderStats();
@@ -806,6 +953,32 @@ function drawChart(series) {
     el.onmouseleave = () => tip.style.display = "none";
   });
 }
+// ---------- Drive controls ----------
+$("drive-folder").value = DRIVE.folder;
+$("drive-client").value = DRIVE.clientId;
+if (!DRIVE.clientId) $("drive-setup").open = true;
+$("drive-save").onclick = () => {
+  DRIVE.clientId = $("drive-client").value.trim();
+  saveDrive();
+  driveTok = null;
+  $("drive-status").textContent = DRIVE.clientId ? "Client ID saved — scan the folder." : "Client ID cleared.";
+  $("drive-setup").open = !DRIVE.clientId;
+};
+$("drive-scan").onclick = async () => {
+  const id = folderId($("drive-folder").value);
+  if (!id) { $("drive-status").textContent = "Paste the folder's link from Drive first."; return; }
+  DRIVE.folder = $("drive-folder").value.trim();
+  saveDrive();
+  $("drive-status").textContent = "Reading folder…";
+  try {
+    driveFiles = await driveList(id);
+    renderDriveList();
+    $("drive-status").textContent = driveFiles.length
+      ? `${driveFiles.length} scan${driveFiles.length > 1 ? "s" : ""} — tap one to analyze it`
+      : "That folder has no photos or PDFs in it.";
+  } catch (e) { $("drive-status").textContent = e.message; }
+};
+
 for (const id of ["chart-metric", "chart-style", "chart-mode"]) $(id).onchange = renderStats;
 addEventListener("resize", renderStats); // rotation / window resize re-fits the chart
 // ponytail: taps fire emulated mouseenter but never mouseleave — clear stuck tooltips on touch
@@ -853,6 +1026,11 @@ if (location.search.includes("selftest")) {
   pass = check("duration none", parseDuration("2026-07-12 practice") == null) && pass;
   drawChart([{ color: "red", pts: [{ t: 1, v: 50, lab: "R" }, { t: 2, v: 60, lab: "R" }] }]);
   pass = check("chart: svg rendered at container width", $("chart").querySelector("svg") != null) && pass;
+  const FID = "1AbC2dEfGhIjKlMnOpQrStUvWxYz34567";
+  pass = check("drive: id from folder link", folderId("https://drive.google.com/drive/folders/" + FID + "?usp=sharing") === FID) && pass;
+  pass = check("drive: id from bare id", folderId(FID) === FID) && pass;
+  pass = check("drive: junk gives empty", folderId("my scans folder") === "") && pass;
+  pass = check("escape: html in file names", esc('a<b>&"') === "a&lt;b&gt;&amp;&quot;") && pass;
   document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
   $("selftest").textContent = document.title + "\n" + out.join("\n");
   if (location.search.includes("ocr")) { // ?selftest=ocr — hits the network, so opt-in

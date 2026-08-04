@@ -1,7 +1,7 @@
 /* Handwriting Helper service worker — offline-first app shell.
    ponytail: no build step here, so bump VERSION by hand when index.html changes;
    the changed file content is what tells the browser a new version exists. */
-const VERSION = "2";
+const VERSION = "3";
 const CACHE = "hwh-cache-" + VERSION;
 const SHELL = ["./", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./apple-touch-icon.png"];
 
