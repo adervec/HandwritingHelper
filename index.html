@@ -141,24 +141,34 @@
   <p id="err" class="hidden"></p>
 
   <details class="card" id="drive-card">
-    <summary>Google Drive scans</summary>
+    <summary>Google Drive</summary>
+
+    <h3>Sessions across devices</h3>
+    <p class="subline">Your history syncs through a private folder only this app can see.</p>
+    <div class="fieldrow" style="margin-top:8px">
+      <button class="act" id="drive-connect">Connect Google Drive</button>
+      <button class="act hidden" id="drive-sync">Sync now</button>
+      <button class="act hidden" id="drive-signout">Sign out</button>
+      <span class="d" id="drive-account"></span>
+    </div>
+    <p class="subline" id="sync-status"></p>
+
+    <h3>Scanned pages</h3>
     <p class="subline">Scan a page with the Drive app, then pull it in here — PDFs and photos both work.</p>
-    <div class="fieldrow" style="margin-top:10px">
+    <div class="fieldrow" style="margin-top:8px">
       <span class="flab">Folder link</span>
       <input type="text" id="drive-folder" placeholder="paste the Drive folder link" style="flex:1;min-width:170px">
       <button class="act" id="drive-scan">Scan folder</button>
     </div>
     <p class="subline" id="drive-status"></p>
     <div id="drive-list"></div>
+
     <details id="drive-setup">
-      <summary>Set up access (once)</summary>
-      <ol>
-        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud credentials</a> and pick or create a project.</li>
-        <li>In APIs &amp; Services → Library, enable the <b>Google Drive API</b>.</li>
-        <li>On the OAuth consent screen, choose External and add your own address as a test user.</li>
-        <li>Credentials → Create credentials → OAuth client ID → Web application. Under Authorized JavaScript origins add <code>https://adervec.github.io</code>.</li>
-        <li>Paste the client ID below. It stays on this device.</li>
-      </ol>
+      <summary>Use a different Google account setup</summary>
+      <p class="subline">Only needed on a fork or your own hosting — this site has a client ID built in.
+        Create an OAuth client ID (Web application) in
+        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud credentials</a>,
+        add this site's address under Authorized JavaScript origins, and paste it here.</p>
       <div class="fieldrow">
         <input type="text" id="drive-client" placeholder="…apps.googleusercontent.com" style="flex:1;min-width:200px">
         <button class="act" id="drive-save">Save</button>
@@ -475,38 +485,73 @@ function parseDuration(text) {
   return null;
 }
 
-// ---------- Google Drive: pull in pages scanned with the Drive app ----------
-const DRIVE = Object.assign({ clientId: "", folder: "", imported: [] },
+// ---------- Google Drive ----------
+// Mirrors Tachyread's provider: a public client id (an identifier, not a secret) that only works
+// from the JavaScript origins registered with Google, plus an app-side origin gate so a fork
+// deployed elsewhere must supply its own. Tokens live in memory only, never on disk.
+const BUILTIN_DRIVE_CLIENT_ID = "547617739897-br6dj2facmsc34qnkjb5u4dbfhju39pu.apps.googleusercontent.com";
+const OAUTH_ORIGINS = ["https://adervec.github.io"];
+const driveOriginAllowed = () => ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ||
+  OAUTH_ORIGINS.includes(location.origin);
+const DRIVE = Object.assign({ clientId: "", folder: "", imported: [], linked: false, syncedAt: 0 },
   JSON.parse(localStorage.getItem("hwh-drive") || "{}"));
 const saveDrive = () => localStorage.setItem("hwh-drive", JSON.stringify(DRIVE));
+const driveClientId = () => DRIVE.clientId.trim() || (driveOriginAllowed() ? BUILTIN_DRIVE_CLIENT_ID : "");
 // ponytail: takes a pasted folder link or a bare id — the id is the long token in the URL
 const folderId = s => (String(s || "").match(/[-\w]{20,}/) || [""])[0];
 
-let driveTok = null;
-function driveAuth() {
-  if (driveTok && driveTok.exp > Date.now() + 60000) return Promise.resolve(driveTok.t);
-  if (!DRIVE.clientId) return Promise.reject(new Error("Add your Google client ID under Set up access first."));
-  return (window.google?.accounts?.oauth2 ? Promise.resolve() : loadScript("https://accounts.google.com/gsi/client"))
-    .then(() => new Promise((ok, no) => {
-      google.accounts.oauth2.initTokenClient({
-        client_id: DRIVE.clientId,
-        scope: "https://www.googleapis.com/auth/drive.readonly",
-        callback: r => {
-          if (!r.access_token) return no(new Error("Google didn't return access — try again."));
-          driveTok = { t: r.access_token, exp: Date.now() + (r.expires_in - 60) * 1000 };
-          ok(r.access_token);
-        },
-        error_callback: () => no(new Error("Sign-in was cancelled.")),
-      }).requestAccessToken();
-    }));
+// Sync needs only the private app folder; reading your scan folder is a separate, wider grant that
+// is requested on demand — so a missing drive.readonly grant can never break sync.
+const SCOPE_SYNC = "openid email profile https://www.googleapis.com/auth/drive.appdata";
+const SCOPE_SCAN = SCOPE_SYNC + " https://www.googleapis.com/auth/drive.readonly";
+
+let gisLoaded = null;
+const loadGis = () => (gisLoaded ||= window.google?.accounts?.oauth2
+  ? Promise.resolve() : loadScript("https://accounts.google.com/gsi/client"));
+
+let driveTok = null;   // { value, exp, scope } — memory only
+let driveAcct = null;  // signed-in account, cosmetic
+const tokenCovers = need => !!driveTok && driveTok.exp > Date.now() + 60000 &&
+  need.split(" ").every(s => driveTok.scope.includes(s));
+
+function requestToken(scope, prompt) {
+  return new Promise((ok, no) => {
+    google.accounts.oauth2.initTokenClient({
+      client_id: driveClientId(), scope,
+      callback: r => {
+        if (!r?.access_token) return no(new Error("Google didn't grant access."));
+        driveTok = { value: r.access_token, exp: Date.now() + ((r.expires_in || 3600) - 60) * 1000, scope: r.scope || scope };
+        ok(r.access_token);
+      },
+      error_callback: e => no(new Error(e?.type === "popup_closed" ? "Sign-in was dismissed." : "Sign-in failed.")),
+    }).requestAccessToken({ prompt });
+  });
 }
-async function driveGet(path, params) {
-  const t = await driveAuth();
+// silent:true reuses an existing grant and never opens a popup (used on boot and by auto-sync)
+async function driveAuth(scope = SCOPE_SYNC, { silent = false } = {}) {
+  if (tokenCovers(scope)) return driveTok.value;
+  if (!driveClientId()) throw new Error("Drive isn't enabled on this deployment — add your own client ID below.");
+  await loadGis();
+  try { return await requestToken(scope, ""); }
+  catch (e) {
+    if (silent) throw e;
+    return await requestToken(scope, "consent");
+  }
+}
+async function fetchAccount() { // best-effort, display only
+  try {
+    const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + driveTok.value } });
+    if (r.ok) { const j = await r.json(); driveAcct = j.email || j.name || "Google account"; }
+  } catch (e) { /* cosmetic */ }
+  return driveAcct;
+}
+async function driveGet(path, params, scope = SCOPE_SCAN) {
+  const t = await driveAuth(scope);
   const r = await fetch("https://www.googleapis.com/drive/v3/" + path + "?" + new URLSearchParams(params),
     { headers: { Authorization: "Bearer " + t } });
   if (r.status === 401 || r.status === 403) {
     driveTok = null;
-    throw new Error("Drive refused access. Check the folder is in this Google account, then scan again.");
+    throw new Error("Drive refused access. Check the folder is in the signed-in account, then scan again.");
   }
   if (!r.ok) throw new Error("Drive returned error " + r.status + ".");
   return r;
@@ -515,6 +560,50 @@ const driveList = id => driveGet("files", {
   q: `'${id}' in parents and trashed=false and (mimeType contains 'image/' or mimeType='application/pdf')`,
   fields: "files(id,name,mimeType,createdTime)", orderBy: "createdTime desc", pageSize: "50",
 }).then(r => r.json()).then(j => j.files || []);
+
+// ---------- Drive sync of sessions (private appDataFolder) ----------
+// The app-data folder is per OAuth client, so reusing Tachyread's client id means sharing that
+// space with its files — hence the app-specific name. Keep it distinct from tachyread-*/gymtracker-*.
+const SYNC_FILE = "handwriting-sessions.json";
+async function syncFind() {
+  const r = await driveGet("files", {
+    spaces: "appDataFolder", q: `name='${SYNC_FILE}' and trashed=false`,
+    fields: "files(id,modifiedTime)",
+  }, SCOPE_SYNC);
+  return (await r.json()).files?.[0] || null;
+}
+async function syncUpload(bundle, existingId) {
+  const t = await driveAuth(SCOPE_SYNC);
+  const meta = existingId ? {} : { name: SYNC_FILE, parents: ["appDataFolder"] };
+  const form = new FormData();
+  form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
+  form.append("file", new Blob([JSON.stringify(bundle)], { type: "application/json" }));
+  const url = "https://www.googleapis.com/upload/drive/v3/files" + (existingId ? "/" + existingId : "") + "?uploadType=multipart";
+  const r = await fetch(url, { method: existingId ? "PATCH" : "POST", headers: { Authorization: "Bearer " + t }, body: form });
+  if (!r.ok) throw new Error("Drive upload failed (" + r.status + ").");
+}
+// read-merge-write, same shape as Tachyread: pull remote, merge, push the merged result
+async function driveSync({ silent = false } = {}) {
+  await driveAuth(SCOPE_SYNC, { silent });
+  if (!driveAcct) await fetchAccount();
+  const found = await syncFind();
+  let remote = { sessions: [], deleted: [] };
+  if (found) {
+    const r = await driveGet("files/" + found.id, { alt: "media" }, SCOPE_SYNC);
+    const j = await r.json().catch(() => null);
+    if (j && Array.isArray(j.sessions)) remote = j;
+  }
+  const merged = mergeSessions(loadSessions(), remote.sessions, [...loadTombs(), ...(remote.deleted || [])]);
+  const deleted = mergeTombs(loadTombs(), remote.deleted || []);
+  saveSessions(merged);
+  localStorage.setItem(TOMB_KEY, JSON.stringify(deleted));
+  await syncUpload({ v: 2, savedAt: Date.now(), sessions: merged, deleted }, found?.id);
+  DRIVE.linked = true;
+  DRIVE.syncedAt = Date.now();
+  saveDrive();
+  renderStats();
+  return merged.length;
+}
 
 // Drive's scanner saves PDFs, so render the page to a canvas the analyzer can read
 async function pdfPage(buf, n) {
@@ -563,16 +652,33 @@ async function driveOpen(f, page) {
 }
 
 // ---------- storage ----------
-const KEY = "hwh-sessions";
+const KEY = "hwh-sessions", TOMB_KEY = "hwh-deleted";
+const newId = () => crypto.randomUUID?.() || Date.now() + "-" + Math.random().toString(36).slice(2);
 function loadSessions() {
   let s = JSON.parse(localStorage.getItem(KEY) || "null");
   if (!s) { // migrate v1 per-hand entries
     const old = JSON.parse(localStorage.getItem("hwh-history") || "[]");
     s = old.map(e => ({ t: e.t, style: "print", mode: "single", durationMin: null, results: { [e.hand]: e.scores } }));
   }
+  for (const x of s) if (!x.id) x.id = newId(); // sync needs a stable key; dates alone aren't unique
   return s.sort((a, b) => a.t - b.t);
 }
 const saveSessions = s => localStorage.setItem(KEY, JSON.stringify(s.slice(-500))); // ponytail: cap at 500
+const loadTombs = () => JSON.parse(localStorage.getItem(TOMB_KEY) || "[]");
+
+// union by id, local wins ties, tombstones win deletes — matches Tachyread's merge semantics
+function mergeSessions(local, remote, tombs) {
+  const dead = new Set(tombs.map(t => t.id));
+  const byId = new Map();
+  for (const s of [...remote, ...local]) if (s?.id && !dead.has(s.id)) byId.set(s.id, s);
+  return [...byId.values()].sort((a, b) => a.t - b.t).slice(-500);
+}
+// ponytail: keep the 200 most recent tombstones — older deletes can't resurface in practice
+const mergeTombs = (a, b) => {
+  const m = new Map();
+  for (const t of [...a, ...b]) if (t?.id) m.set(t.id, t);
+  return [...m.values()].sort((x, y) => (x.at || 0) - (y.at || 0)).slice(-200);
+};
 
 // ---------- coaching tips ----------
 const METRIC_TIP = {
@@ -812,7 +918,7 @@ $("save-btn").onclick = () => {
     match = cur.r.mirror.match;
   } else results[prefs.hand] = withLeg(cur.r.metrics.scores);
   const s = loadSessions();
-  s.push({ t, style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
+  s.push({ id: newId(), t, style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
   saveSessions(s);
   if (cur.drive) { // remember which scans are already logged, per page
     DRIVE.imported = [...new Set([...DRIVE.imported, cur.drive.id + "#" + cur.page])].slice(-500);
@@ -822,6 +928,7 @@ $("save-btn").onclick = () => {
   $("save-btn").disabled = true;
   $("save-btn").textContent = "Saved ✓";
   renderStats();
+  if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {}); // push in the background
 };
 
 $("export").onclick = () => {
@@ -903,8 +1010,12 @@ function renderStats() {
     // ponytail: two-tap confirm — confirm() is silently blocked in sandboxed iframes
     if (b.textContent !== "Sure?") { b.textContent = "Sure?"; return; }
     const all = loadSessions();
-    all.splice(+b.dataset.i, 1);
+    const [gone] = all.splice(+b.dataset.i, 1);
     saveSessions(all);
+    if (gone?.id) { // tombstone so the delete survives the next sync instead of coming back
+      localStorage.setItem(TOMB_KEY, JSON.stringify(mergeTombs(loadTombs(), [{ id: gone.id, at: Date.now() }])));
+      if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+    }
     renderStats();
   });
 }
@@ -956,14 +1067,38 @@ function drawChart(series) {
 // ---------- Drive controls ----------
 $("drive-folder").value = DRIVE.folder;
 $("drive-client").value = DRIVE.clientId;
-if (!DRIVE.clientId) $("drive-setup").open = true;
+function syncUi(msg) {
+  const on = DRIVE.linked;
+  $("drive-connect").classList.toggle("hidden", on);
+  $("drive-sync").classList.toggle("hidden", !on);
+  $("drive-signout").classList.toggle("hidden", !on);
+  $("drive-account").textContent = on && driveAcct ? driveAcct : "";
+  $("sync-status").textContent = typeof msg === "string" ? msg
+    : DRIVE.syncedAt ? "Last synced " + new Date(DRIVE.syncedAt).toLocaleString() : "";
+}
+async function runSync(label) {
+  $("sync-status").textContent = label;
+  try {
+    const n = await driveSync();
+    syncUi(`Synced ${n} session${n === 1 ? "" : "s"} · ${new Date(DRIVE.syncedAt).toLocaleTimeString()}`);
+  } catch (e) { syncUi(e.message); }
+}
+$("drive-connect").onclick = () => runSync("Connecting…");
+$("drive-sync").onclick = () => runSync("Syncing…");
+$("drive-signout").onclick = () => {
+  driveTok = null; driveAcct = null;
+  DRIVE.linked = false; saveDrive();
+  syncUi("Signed out on this device. Your saved sessions stay here.");
+};
 $("drive-save").onclick = () => {
   DRIVE.clientId = $("drive-client").value.trim();
   saveDrive();
   driveTok = null;
-  $("drive-status").textContent = DRIVE.clientId ? "Client ID saved — scan the folder." : "Client ID cleared.";
-  $("drive-setup").open = !DRIVE.clientId;
+  $("drive-status").textContent = DRIVE.clientId ? "Client ID saved." : "Using this site's built-in client ID.";
 };
+syncUi();
+// reconnect quietly on boot if this device was linked before — never pops a sign-in
+if (DRIVE.linked) driveSync({ silent: true }).then(() => syncUi(), () => syncUi("Sign in again to resume syncing."));
 $("drive-scan").onclick = async () => {
   const id = folderId($("drive-folder").value);
   if (!id) { $("drive-status").textContent = "Paste the folder's link from Drive first."; return; }
@@ -971,6 +1106,11 @@ $("drive-scan").onclick = async () => {
   saveDrive();
   $("drive-status").textContent = "Reading folder…";
   try {
+    // reading your own folders is a wider grant than sync needs — say so plainly if it's missing
+    await driveAuth(SCOPE_SCAN);
+    if (!driveTok.scope.includes("drive.readonly"))
+      throw new Error("Google didn't grant folder access. Allow the Drive permission when signing in — " +
+        "if it wasn't offered, add the Drive read-only scope to this client's OAuth consent screen, or use your own client ID below.");
     driveFiles = await driveList(id);
     renderDriveList();
     $("drive-status").textContent = driveFiles.length
@@ -1031,6 +1171,19 @@ if (location.search.includes("selftest")) {
   pass = check("drive: id from bare id", folderId(FID) === FID) && pass;
   pass = check("drive: junk gives empty", folderId("my scans folder") === "") && pass;
   pass = check("escape: html in file names", esc('a<b>&"') === "a&lt;b&gt;&amp;&quot;") && pass;
+  const S = (id, t, tag) => ({ id, t, tag });
+  const m1 = mergeSessions([S("a", 1), S("b", 2)], [S("c", 3)], []);
+  pass = check("sync: union of both sides, got " + m1.length, m1.length === 3) && pass;
+  pass = check("sync: sorted by date", m1[0].id === "a" && m1[2].id === "c") && pass;
+  const m2 = mergeSessions([S("a", 1, "mine")], [S("a", 1, "theirs")], []);
+  pass = check("sync: same id kept once, local wins", m2.length === 1 && m2[0].tag === "mine") && pass;
+  const m3 = mergeSessions([S("a", 1)], [S("b", 2)], [{ id: "b", at: 9 }]);
+  pass = check("sync: tombstone beats a remote copy", m3.length === 1 && m3[0].id === "a") && pass;
+  const m4 = mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]);
+  pass = check("sync: deleted session stays deleted", m4.length === 0) && pass;
+  const tm = mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]);
+  pass = check("sync: tombstones dedupe, got " + tm.length, tm.length === 2) && pass;
+  pass = check("drive: origin gate rejects other hosts", OAUTH_ORIGINS.length === 1 && OAUTH_ORIGINS[0] === "https://adervec.github.io") && pass;
   document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
   $("selftest").textContent = document.title + "\n" + out.join("\n");
   if (location.search.includes("ocr")) { // ?selftest=ocr — hits the network, so opt-in
