@@ -1,4 +1,4 @@
-﻿/* Handwriting Helper service worker â€” offline-first app shell.
+/* Handwriting Helper service worker — offline-first app shell.
    ponytail: no build step here, so bump VERSION by hand when index.html changes;
    the changed file content is what tells the browser a new version exists. */
 const VERSION = "4";
@@ -27,7 +27,7 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   let url;
   try { url = new URL(req.url); } catch (_) { return; }
-  if (url.origin !== self.location.origin) return; // leave the OCR CDN alone â€” the browser HTTP cache covers it
+  if (url.origin !== self.location.origin) return; // leave Google APIs and the OCR CDN alone
 
   if (req.mode === "navigate") {
     // network-first for the app document: freshest app when online, cached shell when offline
@@ -39,7 +39,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // cache-first for same-origin static assets (icons, manifest, â€¦)
+  // cache-first for same-origin static assets (icons, manifest, …)
   e.respondWith(
     caches.match(req).then((hit) => hit || fetch(req).then((res) => {
       if (res && res.ok && res.type === "basic") {
