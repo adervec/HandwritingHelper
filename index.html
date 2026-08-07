@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2a78d6">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -10,115 +10,378 @@
 <style>
   :root {
     color-scheme: light;
-    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --page: #f9f9f7; --surface-1: #fcfcfb; --surface-2: #f3f2ee;
     --ink-1: #0b0b0b; --ink-2: #52514e; --ink-muted: #898781;
     --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
-    --right: #2a78d6; --left: #008300;
+    --right: #2a78d6; --left: #008300; --accent: #2a78d6;
+    /* sequential blue ramp for the activity heatmap — one hue, light→dark */
+    --seq-0: #efeeea; --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #5598e7; --seq-4: #2a78d6; --seq-5: #184f95;
+    --good: #008300; --warn: #eda100; --tint: rgba(42,120,214,0.08);
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
       color-scheme: dark;
-      --surface-1: #1a1a19; --page: #0d0d0d;
+      --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #232322;
       --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
       --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-      --right: #3987e5; --left: #008300;
+      --right: #3987e5; --left: #008300; --accent: #3987e5;
+      /* dark mode steps its own way out of the surface, not an inverted light ramp */
+      --seq-0: #232322; --seq-1: #104281; --seq-2: #184f95; --seq-3: #256abf; --seq-4: #3987e5; --seq-5: #86b6ef;
+      --warn: #c98500; --tint: rgba(57,135,229,0.12);
     }
   }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #232322;
+    --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --right: #3987e5; --left: #008300; --accent: #3987e5;
+    --seq-0: #232322; --seq-1: #104281; --seq-2: #184f95; --seq-3: #256abf; --seq-4: #3987e5; --seq-5: #86b6ef;
+    --warn: #c98500; --tint: rgba(57,135,229,0.12);
+  }
+
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--page); color: var(--ink-1);
     font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
   }
-  main { max-width: 820px; margin: 0 auto; padding: 20px 16px 60px; }
-  h1 { font-size: 22px; margin: 0; }
-  h2 { font-size: 15px; margin: 0 0 10px; }
-  h3 { font-size: 13px; margin: 12px 0 6px; color: var(--ink-2); }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
-  .optrow { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
-  .opt { display: flex; align-items: center; gap: 8px; }
-  .opt .flab { font-size: 12px; color: var(--ink-muted); }
-  .seg { display: flex; gap: 5px; }
-  .seg button, button.act {
-    font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 8px; cursor: pointer;
-    border: 1px solid var(--border); background: transparent; color: var(--ink-2);
+  main { max-width: 860px; margin: 0 auto; padding: 16px 16px 96px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 0 0 10px; letter-spacing: -0.005em; }
+  h3 { font-size: 12px; margin: 14px 0 6px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  p { margin: 0 0 8px; }
+  a { color: var(--accent); }
+
+  /* ---------- chrome ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 16px; background: var(--page);
+    border-bottom: 1px solid var(--border);
+    padding-top: max(10px, env(safe-area-inset-top));
   }
-  .seg button.on { color: var(--ink-1); border-color: currentColor; font-weight: 600; }
-  #hand-R.on { color: var(--right); } #hand-L.on { color: var(--left); }
-  #mode-hint { font-size: 12px; color: var(--ink-muted); margin: 8px 0 0; }
-  #drop {
-    border: 2px dashed var(--axis); border-radius: 10px; padding: 26px 16px;
-    text-align: center; color: var(--ink-2); cursor: pointer; margin-bottom: 16px;
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 16px; }
+  .brand .mark {
+    display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px;
+    background: var(--accent); color: #fff; font-size: 15px;
   }
-  #drop.over { border-color: var(--right); color: var(--ink-1); }
-  #drop b { color: var(--ink-1); }
-  #preview { max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; margin: 10px 0; }
-  .tile { border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
-  .tile .v { font-size: 24px; font-weight: 650; }
-  .tile .l { font-size: 12px; color: var(--ink-2); }
-  .tile .d { font-size: 11px; color: var(--ink-muted); }
-  .tile.weak { outline: 2px solid var(--axis); }
-  .tile.weak .l::after { content: " — focus here"; color: var(--ink-1); font-weight: 600; }
-  #tips { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); }
-  #tips li { margin: 4px 0; }
+  .hdr-right { display: flex; align-items: center; gap: 8px; }
+
+  .tabs {
+    position: sticky; top: 0; z-index: 19; display: flex; gap: 4px;
+    padding: 8px 16px; background: var(--page); border-bottom: 1px solid var(--border);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button {
+    font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap;
+    padding: 7px 13px; border-radius: 999px; cursor: pointer;
+    border: 1px solid transparent; background: transparent; color: var(--ink-muted);
+  }
+  .tabs button.on { background: var(--surface-1); border-color: var(--border); color: var(--ink-1); }
+  @media (max-width: 620px) {
+    /* phone: the tab bar goes to the thumb, where the OS puts its own */
+    .tabs {
+      position: fixed; top: auto; bottom: 0; left: 0; right: 0;
+      border-top: 1px solid var(--border); border-bottom: 0; justify-content: space-around;
+      padding: 6px 6px max(6px, env(safe-area-inset-bottom));
+      background: var(--surface-1);
+    }
+    .tabs button { flex: 1; font-size: 11px; padding: 8px 4px; border-radius: 8px; }
+    /* a card's side-note gets its own line rather than squeezing the heading to two */
+    .card-hd > span { flex-basis: 100%; }
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.on { display: block; animation: fade .16s ease-out; }
+  @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .tab-panel.on { animation: none; } }
+
+  /* ---------- surfaces ---------- */
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px; margin-bottom: 14px;
+  }
+  .card.flush { padding: 0; overflow: hidden; }
+  .card-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .card-hd h2 { margin: 0; }
   .subline { color: var(--ink-2); font-size: 13px; margin: 6px 0 0; }
-  .savebar { border-top: 1px solid var(--grid); margin-top: 14px; padding-top: 12px; }
-  .fieldrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
-  .fieldrow .flab { font-size: 12px; color: var(--ink-muted); min-width: 95px; }
+  .muted { color: var(--ink-muted); }
+  .hidden { display: none !important; }
+
+  /* ---------- controls ---------- */
+  button.act, .seg button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-2);
+  }
+  button.act:hover, .seg button:hover { color: var(--ink-1); }
+  button.act:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { color: #fff; filter: brightness(1.06); }
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  .seg button.on { color: var(--ink-1); border-color: currentColor; font-weight: 600; background: var(--surface-2); }
+  #hand-R.on { color: var(--right); } #hand-L.on { color: var(--left); }
+  .optrow { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .opt { display: flex; align-items: center; gap: 8px; }
+  .flab { font-size: 12px; color: var(--ink-muted); }
+  .fieldrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
+  .fieldrow .flab { min-width: 92px; }
   .fieldrow label { display: flex; align-items: center; gap: 4px; }
   .fieldrow .d { color: var(--ink-muted); font-size: 12px; }
-  input[type="date"], input[type="number"], select {
-    font: inherit; font-size: 13px; padding: 3px 6px; border-radius: 6px;
+  input[type="date"], input[type="number"], input[type="text"], select {
+    font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 7px;
     border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1);
   }
-  #save-btn { font-weight: 600; }
-  svg text { font: 11px system-ui, sans-serif; fill: var(--ink-muted); }
-  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); margin: 8px 0 6px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+    padding: 3px 9px; border-radius: 999px; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--ink-2);
+  }
+  .pill.hot { background: var(--tint); border-color: var(--accent); color: var(--accent); }
+  @media (pointer: coarse) {
+    /* ponytail: 16px stops iOS Safari's auto-zoom on input focus */
+    input[type="date"], input[type="number"], input[type="text"], select { font-size: 16px; padding: 7px 9px; }
+    button.act, .seg button { padding: 9px 13px; }
+    td button { font-size: 17px; padding: 6px 10px; }
+  }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; }
+  .tile { border: 1px solid var(--border); border-radius: 10px; padding: 10px 11px; background: var(--surface-1); }
+  .tile .v { font-size: 25px; font-weight: 650; line-height: 1.1; letter-spacing: -0.02em; }
+  .tile .l { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .tile .d { font-size: 11px; color: var(--ink-muted); }
+  .tile .spark { display: block; margin-top: 4px; }
+  .tile.weak { outline: 2px solid var(--axis); }
+  .tile.weak .l::after { content: " — focus here"; color: var(--ink-1); font-weight: 600; }
+  .hero { display: flex; align-items: flex-end; gap: 10px; }
+  .hero .big { font-size: 40px; font-weight: 680; line-height: 1; letter-spacing: -0.025em; }
+  .hero .sub { font-size: 13px; color: var(--ink-2); padding-bottom: 4px; }
+
+  /* ---------- goal bar ---------- */
+  .bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .bar > i.done { background: var(--good); }
+
+  /* ---------- plan / drills ---------- */
+  .planlist { display: grid; gap: 8px; }
+  .planitem {
+    display: flex; align-items: center; gap: 11px; padding: 11px 12px; text-align: left; width: 100%;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1);
+    color: var(--ink-1); font: inherit; cursor: pointer;
+  }
+  .planitem:hover { border-color: var(--axis); }
+  .planitem.done { color: var(--ink-muted); background: var(--surface-2); }
+  .planitem .ic { font-size: 19px; width: 24px; text-align: center; flex-shrink: 0; }
+  .planitem .body { flex: 1; min-width: 0; }
+  .planitem .t { display: block; font-weight: 600; font-size: 14px; }
+  .planitem .s { display: block; font-size: 12px; color: var(--ink-muted); margin-top: 1px; }
+  .planitem .chev { color: var(--ink-muted); font-weight: 700; }
+  .drillgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .drill { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface-1); display: flex; flex-direction: column; gap: 6px; }
+  .drill h4 { margin: 0; font-size: 14px; }
+  .drill .why { font-size: 12px; color: var(--ink-2); flex: 1; }
+  .drill .meta { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--ink-muted); }
+  .tag.R { color: var(--right); } .tag.L { color: var(--left); }
+  /* a whole grid of saturated blue blocks reads loud — tinted is still clearly the action */
+  .drill .row { display: flex; gap: 6px; }
+  .drill .row button { flex: 1; background: var(--tint); border-color: transparent; color: var(--accent); font-weight: 600; }
+  .drill .row button:hover { color: var(--accent); filter: brightness(1.04); }
+
+  /* ---------- timer ---------- */
+  #timer-wrap { text-align: center; padding: 6px 0 2px; }
+  #timer-clock { font-size: 54px; font-weight: 660; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  #timer-ring { display: block; margin: 0 auto 6px; }
+
+  /* ---------- heatmap ---------- */
+  .heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; }
+  .heat i { width: 100%; aspect-ratio: 1; border-radius: 2px; background: var(--seq-0); display: block; }
+  .heatwrap { overflow-x: auto; padding-bottom: 2px; }
+  .heatscale { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-muted); margin-top: 8px; }
+  .heatscale i { width: 11px; height: 11px; border-radius: 2px; display: block; }
+
+  /* ---------- chart ---------- */
+  /* scoped to the charts on purpose: a blanket `svg text` rule also wins over the
+     practice sheet's own font-size/fill attributes and blows its labels up to 11 user units */
+  #chart text, #profile-chart text { font: 11px system-ui, sans-serif; fill: var(--ink-muted); }
+  .legend { display: flex; gap: 14px; font-size: 13px; color: var(--ink-2); margin: 8px 0 6px; flex-wrap: wrap; }
   .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  #tooltip {
+    position: fixed; pointer-events: none; display: none; z-index: 40;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 9px; font-size: 12px; box-shadow: 0 3px 12px rgba(0,0,0,.2);
+  }
+
+  /* ---------- table ---------- */
   table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
-  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--grid); }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
   th { color: var(--ink-muted); font-weight: 500; font-size: 12px; }
   td button { border: 0; background: none; color: var(--ink-muted); cursor: pointer; font-size: 14px; }
   .tablewrap { overflow-x: auto; }
-  @media (pointer: coarse) {
-    .seg button, button.act { padding: 10px 14px; }
-    /* ponytail: 16px stops iOS Safari's auto-zoom on input focus */
-    input[type="date"], input[type="number"], select { font-size: 16px; padding: 6px 8px; }
-    td button { font-size: 18px; padding: 6px 10px; }
+
+  /* ---------- upload ---------- */
+  #drop {
+    border: 2px dashed var(--axis); border-radius: 12px; padding: 26px 16px;
+    text-align: center; color: var(--ink-2); cursor: pointer; margin-bottom: 14px;
   }
-  #tooltip {
-    position: fixed; pointer-events: none; display: none; z-index: 9;
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px;
-    padding: 5px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.18);
-  }
-  .hidden { display: none; }
+  #drop.over { border-color: var(--accent); color: var(--ink-1); background: var(--tint); }
+  #drop b { color: var(--ink-1); }
+  #preview { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  #tips { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); }
+  #tips li { margin: 4px 0; }
+  .savebar { border-top: 1px solid var(--grid); margin-top: 14px; padding-top: 12px; }
   #err { color: var(--ink-2); }
   summary { cursor: pointer; font-weight: 600; }
   summary::marker { color: var(--ink-muted); }
   #drive-setup summary { font-weight: 400; font-size: 13px; color: var(--ink-2); margin-top: 6px; }
   #drive-setup ol { padding-left: 20px; color: var(--ink-2); font-size: 13px; }
-  #drive-setup li { margin: 5px 0; }
   #drive-list { display: grid; gap: 6px; margin-top: 10px; }
-  .filerow {
-    display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    width: 100%; text-align: left; font-size: 13px;
-  }
+  .filerow { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; font-size: 13px; }
   .filerow.done { color: var(--ink-muted); }
-  input[type="text"] {
-    font: inherit; font-size: 13px; padding: 4px 7px; border-radius: 6px;
-    border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1);
+
+  /* ---------- badges ---------- */
+  .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .badge { text-align: center; padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-1); }
+  .badge.locked { opacity: .38; }
+  .badge .e { font-size: 24px; line-height: 1.1; }
+  .badge .n { font-size: 11px; font-weight: 600; margin-top: 3px; }
+  .badge .d { font-size: 10px; color: var(--ink-muted); }
+
+  /* ---------- practice sheet overlay ---------- */
+  #sheet {
+    position: fixed; inset: 0; z-index: 50; background: var(--page);
+    display: none; flex-direction: column;
   }
-  @media (pointer: coarse) { input[type="text"] { font-size: 16px; padding: 7px 9px; } }
+  #sheet.on { display: flex; }
+  #sheet .sheetbar {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-1);
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  #sheet .sheetbar .grow { flex: 1; }
+  #sheet-body { flex: 1; overflow: auto; padding: 14px 14px 40px; }
+  #sheet-inner { max-width: 780px; margin: 0 auto; }
+  #sheet-paper { background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.18); border-radius: 3px; }
+  #sheet-paper svg { display: block; width: 100%; height: auto; }
+  #sheet-paper:empty { display: none; }
+
+  @media print {
+    /* only the guide sheet should ever hit paper */
+    body > *:not(#sheet) { display: none !important; }
+    #sheet { position: static; display: block !important; background: #fff; }
+    #sheet .sheetbar, #run-card, #sheet-opts { display: none !important; }
+    #sheet-body { padding: 0; overflow: visible; }
+    #sheet-inner { max-width: none; }
+    /* pinned to the viewBox's own millimetres so the x-height prints true to size —
+       without this the sheet stretches to the paper width and spills onto a second page */
+    #sheet-paper { box-shadow: none; border-radius: 0; width: 190mm; margin: 0 auto; }
+    @page { margin: 10mm; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>Handwriting Helper</h1>
-    <button class="act" id="export">Export data</button>
-  </header>
+<header class="topbar">
+  <div class="brand"><span class="mark">✍</span> Handwriting Helper</div>
+  <div class="hdr-right">
+    <span class="pill" id="hdr-streak"></span>
+    <button class="act" id="theme-btn" title="Light / dark / system">◐</button>
+  </div>
+</header>
 
+<nav class="tabs" id="tabs">
+  <button data-tab="today">Today</button>
+  <button data-tab="practice">Practice</button>
+  <button data-tab="analyze">Analyze</button>
+  <button data-tab="progress">Progress</button>
+  <button data-tab="setup">Setup</button>
+</nav>
+
+<main>
+
+<!-- ============ TODAY ============ -->
+<section id="tab-today" class="tab-panel">
+  <div class="card">
+    <div class="card-hd">
+      <h2 id="greeting">Today</h2>
+      <span class="pill" id="today-date"></span>
+    </div>
+    <div class="hero">
+      <span class="big" id="today-min">0</span>
+      <span class="sub" id="today-goal-sub">of your weekly goal</span>
+    </div>
+    <div class="bar"><i id="goal-bar" style="width:0%"></i></div>
+    <p class="subline" id="goal-line"></p>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">
+      <h2>Today's plan</h2>
+      <button class="act" id="plan-reroll" title="Build a different routine">↻ Reshuffle</button>
+    </div>
+    <p class="subline" id="plan-why"></p>
+    <div class="planlist" id="plan-list"></div>
+    <p class="subline" id="plan-progress"></p>
+  </div>
+
+  <div class="card">
+    <h2>At a glance</h2>
+    <div class="tiles" id="today-tiles"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd"><h2>Where you stand</h2><span class="d muted" style="font-size:12px" id="profile-note"></span></div>
+    <div class="legend">
+      <span><span class="chip" style="background:var(--right)"></span>Right hand</span>
+      <span><span class="chip" style="background:var(--left)"></span>Left hand</span>
+    </div>
+    <div id="profile-chart"></div>
+    <p class="subline" id="profile-empty">Save a page in Analyze and your metric profile appears here.</p>
+  </div>
+</section>
+
+<!-- ============ PRACTICE ============ -->
+<section id="tab-practice" class="tab-panel">
+  <div class="card">
+    <div class="card-hd"><h2>Drill library</h2><span class="pill" id="drill-count"></span></div>
+    <div class="fieldrow" style="margin-bottom:6px">
+      <span class="flab">Show</span>
+      <select id="drill-cat"><option value="all">All categories</option></select>
+      <select id="drill-hand">
+        <option value="any">Either hand</option>
+        <option value="R">Right hand</option>
+        <option value="L">Left hand</option>
+      </select>
+      <select id="drill-target">
+        <option value="all">Any weakness</option>
+        <option value="slantC">Slant steadiness</option>
+        <option value="baseline">Baseline</option>
+        <option value="size">Size consistency</option>
+        <option value="spacing">Spacing</option>
+        <option value="legibility">Legibility</option>
+        <option value="match">Mirror match</option>
+        <option value="speed">Speed &amp; endurance</option>
+      </select>
+    </div>
+    <div class="drillgrid" id="drill-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>Practice log</h2>
+    <p class="subline">Every finished drill lands here and counts toward your streak and weekly minutes.</p>
+    <div class="tablewrap">
+      <table id="drill-table" class="hidden">
+        <thead><tr><th>Date</th><th>Drill</th><th>Hand</th><th>Min</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p id="drill-empty" class="subline">Nothing logged yet — run a drill above.</p>
+  </div>
+</section>
+
+<!-- ============ ANALYZE ============ -->
+<section id="tab-analyze" class="tab-panel">
   <div class="card">
     <div class="optrow">
       <div class="opt"><span class="flab" id="hand-lab">Hand</span>
@@ -127,54 +390,16 @@
         <div class="seg"><button id="style-print">Printing</button><button id="style-cursive">Cursive</button></div></div>
       <div class="opt"><span class="flab">Mode</span>
         <div class="seg"><button id="mode-single">Single hand</button><button id="mode-mirror">Mirror prime</button></div></div>
-      <div class="opt"><span class="flab">Screen</span>
-        <div class="seg"><button id="or-portrait">Portrait</button><button id="or-landscape">Landscape</button><button id="or-auto">Auto</button></div></div>
     </div>
-    <p id="mode-hint"></p>
+    <p class="subline" id="mode-hint"></p>
   </div>
 
   <div id="drop" tabindex="0">
-    <b>Add a photo of your page</b> — tap or click to choose (camera or gallery), drop it here, or paste.<br>
+    <b>Add a photo of your page</b> — tap to choose (camera or gallery), drop it here, or paste.<br>
     <span style="font-size:13px">Dark writing on light paper, photographed straight-on, works best.</span>
     <input type="file" id="file" accept="image/*" class="hidden">
   </div>
   <p id="err" class="hidden"></p>
-
-  <details class="card" id="drive-card">
-    <summary>Google Drive</summary>
-
-    <h3>Sessions across devices</h3>
-    <p class="subline">Your history syncs through a private folder only this app can see.</p>
-    <div class="fieldrow" style="margin-top:8px">
-      <button class="act" id="drive-connect">Connect Google Drive</button>
-      <button class="act hidden" id="drive-sync">Sync now</button>
-      <button class="act hidden" id="drive-signout">Sign out</button>
-      <span class="d" id="drive-account"></span>
-    </div>
-    <p class="subline" id="sync-status"></p>
-
-    <h3>Scanned pages</h3>
-    <p class="subline">Scan a page with the Drive app, then pull it in here — PDFs and photos both work.</p>
-    <div class="fieldrow" style="margin-top:8px">
-      <span class="flab">Folder link</span>
-      <input type="text" id="drive-folder" placeholder="paste the Drive folder link" style="flex:1;min-width:170px">
-      <button class="act" id="drive-scan">Scan folder</button>
-    </div>
-    <p class="subline" id="drive-status"></p>
-    <div id="drive-list"></div>
-
-    <details id="drive-setup">
-      <summary>Use a different Google account setup</summary>
-      <p class="subline">Only needed on a fork or your own hosting — this site has a client ID built in.
-        Create an OAuth client ID (Web application) in
-        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud credentials</a>,
-        add this site's address under Authorized JavaScript origins, and paste it here.</p>
-      <div class="fieldrow">
-        <input type="text" id="drive-client" placeholder="…apps.googleusercontent.com" style="flex:1;min-width:200px">
-        <button class="act" id="drive-save">Save</button>
-      </div>
-    </details>
-  </details>
 
   <section id="result" class="card hidden">
     <h2>Analysis</h2>
@@ -197,13 +422,43 @@
         <button class="act" id="ocr-btn">Read page (OCR)</button>
         <span class="d" id="ocr-status"></span>
       </div>
-      <button class="act" id="save-btn">Save session</button>
+      <button class="act primary" id="save-btn">Save session</button>
     </div>
   </section>
 
-  <section class="card">
-    <h2>Progress</h2>
+  <details class="card" id="drive-card">
+    <summary>Import from Google Drive</summary>
+    <p class="subline">Scan a page with the Drive app, then pull it in here — PDFs and photos both work.</p>
+    <div class="fieldrow" style="margin-top:8px">
+      <span class="flab">Folder link</span>
+      <input type="text" id="drive-folder" placeholder="paste the Drive folder link" style="flex:1;min-width:170px">
+      <button class="act" id="drive-scan">Scan folder</button>
+    </div>
+    <p class="subline" id="drive-status"></p>
+    <div id="drive-list"></div>
+  </details>
+</section>
+
+<!-- ============ PROGRESS ============ -->
+<section id="tab-progress" class="tab-panel">
+  <div class="card">
+    <h2>Totals</h2>
     <div class="tiles" id="stat-tiles"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd"><h2>Practice calendar</h2><span class="d muted" style="font-size:12px" id="heat-note"></span></div>
+    <div class="heatwrap"><div class="heat" id="heat"></div></div>
+    <div class="heatscale">
+      <span>Less</span>
+      <i style="background:var(--seq-0)"></i><i style="background:var(--seq-1)"></i><i style="background:var(--seq-2)"></i><i style="background:var(--seq-3)"></i><i style="background:var(--seq-4)"></i><i style="background:var(--seq-5)"></i>
+      <span>More</span>
+      <span style="margin-left:auto">minutes practised per day</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Trend</h2>
     <div class="fieldrow">
       <select id="chart-metric">
         <option value="overall">Overall score</option>
@@ -224,31 +479,153 @@
         <option value="single">Single hand</option>
         <option value="mirror">Mirror prime</option>
       </select>
+      <select id="chart-range">
+        <option value="0">All time</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
     </div>
     <div class="legend" id="legend">
       <span><span class="chip" style="background:var(--right)"></span>Right hand</span>
       <span><span class="chip" style="background:var(--left)"></span>Left hand</span>
-      <span class="d" style="font-size:12px;color:var(--ink-muted)">line = 3-session average, dots = sessions</span>
+      <span class="muted" style="font-size:12px">line = 3-session average, dots = sessions</span>
     </div>
     <div id="chart"></div>
-    <div class="tablewrap">
-    <table id="histtable" class="hidden">
-      <thead><tr><th>Date</th><th>Hand</th><th>Style</th><th>Mode</th><th>Min</th><th>Overall</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
-    </div>
-    <p id="empty" style="color:var(--ink-2)">No sessions yet. Analyze a screenshot and hit Save — it lands here.</p>
-  </section>
-  <pre id="selftest"></pre>
-</main>
-<div id="tooltip"></div>
+  </div>
 
+  <div class="card">
+    <h2>Achievements</h2>
+    <div class="badges" id="badges"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd"><h2>History</h2><span class="d muted" style="font-size:12px" id="hist-note"></span></div>
+    <div class="tablewrap">
+      <table id="histtable" class="hidden">
+        <thead><tr><th>Date</th><th>Hand</th><th>Style</th><th>Mode</th><th>Min</th><th>Overall</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p id="empty" class="subline">No sessions yet. Analyze a page and hit Save — it lands here.</p>
+  </div>
+</section>
+
+<!-- ============ SETUP ============ -->
+<section id="tab-setup" class="tab-panel">
+  <div class="card">
+    <h2>Preferences</h2>
+    <div class="fieldrow">
+      <span class="flab">Weekly goal</span>
+      <input type="number" id="goal-min" min="10" max="1200" step="10" style="width:80px"> minutes
+    </div>
+    <div class="fieldrow">
+      <span class="flab">Screen</span>
+      <div class="seg"><button id="or-portrait">Portrait</button><button id="or-landscape">Landscape</button><button id="or-auto">Auto</button></div>
+    </div>
+    <div class="fieldrow">
+      <span class="flab">Slant guide</span>
+      <input type="number" id="slant-pref" min="-30" max="30" step="5" style="width:70px"> ° on printed sheets
+    </div>
+    <div class="fieldrow">
+      <span class="flab">Nib / x-height</span>
+      <input type="number" id="xh-pref" min="4" max="16" step="1" style="width:70px"> mm on printed sheets
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Sync across devices</h2>
+    <p class="subline">Your history syncs through a private folder only this app can see.</p>
+    <div class="fieldrow" style="margin-top:8px">
+      <button class="act primary" id="drive-connect">Connect Google Drive</button>
+      <button class="act hidden" id="drive-sync">Sync now</button>
+      <button class="act hidden" id="drive-signout">Sign out</button>
+      <span class="d" id="drive-account"></span>
+    </div>
+    <p class="subline" id="sync-status"></p>
+    <details id="drive-setup">
+      <summary>Use a different Google account setup</summary>
+      <p class="subline">Only needed on a fork or your own hosting — this site has a client ID built in.
+        Create an OAuth client ID (Web application) in
+        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud credentials</a>,
+        add this site's address under Authorized JavaScript origins, and paste it here.</p>
+      <div class="fieldrow">
+        <input type="text" id="drive-client" placeholder="…apps.googleusercontent.com" style="flex:1;min-width:200px">
+        <button class="act" id="drive-save">Save</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Your data</h2>
+    <p class="subline">Everything lives in this browser (and your Drive app folder if connected). Nothing goes anywhere else.</p>
+    <div class="fieldrow" style="margin-top:8px">
+      <button class="act" id="export">Export JSON</button>
+      <button class="act" id="import-btn">Import JSON</button>
+      <button class="act" id="copy-summary">Copy progress summary</button>
+      <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+    </div>
+    <p class="subline" id="data-status"></p>
+  </div>
+  <pre id="selftest"></pre>
+</section>
+
+</main>
+
+<!-- drill runner: instructions + timer + printable guide sheet -->
+<div id="sheet">
+  <div class="sheetbar">
+    <b id="sheet-title" class="grow">Drill</b>
+    <button class="act" id="sheet-print">Print sheet</button>
+    <button class="act" id="sheet-close">Close</button>
+  </div>
+  <div id="sheet-body">
+    <div id="sheet-inner">
+      <div class="card" id="run-card">
+        <p id="run-how"></p>
+        <div class="meta" id="run-tags" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
+        <div id="timer-wrap">
+          <svg id="timer-ring" width="132" height="132" viewBox="0 0 132 132" aria-hidden="true">
+            <circle cx="66" cy="66" r="58" fill="none" stroke="var(--surface-2)" stroke-width="8"></circle>
+            <circle id="timer-arc" cx="66" cy="66" r="58" fill="none" stroke="var(--accent)" stroke-width="8"
+                    stroke-linecap="round" transform="rotate(-90 66 66)"></circle>
+          </svg>
+          <div id="timer-clock">0:00</div>
+          <div class="row" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+            <button class="act primary" id="timer-toggle">Start</button>
+            <button class="act" id="timer-reset">Reset</button>
+          </div>
+        </div>
+        <div class="fieldrow" style="margin-top:14px;justify-content:center">
+          <span class="flab">Hand</span>
+          <div class="seg"><button id="run-R">Right</button><button id="run-L">Left</button></div>
+          <span class="flab">Minutes</span>
+          <input type="number" id="run-min" min="1" max="240" style="width:66px">
+          <button class="act primary" id="run-log">Log drill</button>
+        </div>
+        <p class="subline" id="run-status" style="text-align:center"></p>
+      </div>
+      <div class="fieldrow" id="sheet-opts">
+        <span class="flab">Guide sheet</span>
+        <label class="flab">Lines <input type="number" id="sheet-lines" min="4" max="40" style="width:60px"></label>
+        <label class="flab">x-height <input type="number" id="sheet-xh" min="4" max="16" style="width:60px"> mm</label>
+        <label class="flab">Slant <input type="number" id="sheet-slant" min="-30" max="30" step="5" style="width:60px"> °</label>
+      </div>
+      <div id="sheet-paper"></div>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
 <script>
 "use strict";
 if ("serviceWorker" in navigator && location.protocol === "https:")
   navigator.serviceWorker.register("sw.js").catch(() => {}); // offline shell + installability
+const $ = id => document.getElementById(id);
 const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
 const esc = s => String(s).replace(/[<>&"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const DAY = 864e5;
+const dayKey = t => { const d = new Date(t); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
 // ---------- image analysis ----------
 function otsu(gray) {
@@ -679,7 +1056,289 @@ const mergeTombs = (a, b) => {
   for (const t of [...a, ...b]) if (t?.id) m.set(t.id, t);
   return [...m.values()].sort((x, y) => (x.at || 0) - (y.at || 0)).slice(-200);
 };
+// ---------- drill catalog ----------
+// Each drill names the metrics it trains, so the plan generator can aim at whatever
+// the last analysis scored worst. `sheet` picks the printable guide underneath it.
+//   hands:  "both" | "R" | "L"     styles: "both" | "print" | "cursive"
+//   sheet:  null (no paper needed) | { kind, text?, xh?, slant? }
+//   kinds:  ruled · slant · grid · boxes · mirror · trace
+const METRIC_LABEL = {
+  slantC: "Slant steadiness", baseline: "Baseline", size: "Size consistency",
+  spacing: "Spacing", legibility: "Legibility", match: "Mirror match", speed: "Speed & endurance",
+};
+const PANGRAMS = [
+  "The quick brown fox jumps over the lazy dog",
+  "Pack my box with five dozen liquor jugs",
+  "Sphinx of black quartz, judge my vow",
+  "How vexingly quick daft zebras jump",
+];
 
+const DRILLS = [
+  // ---- warm-up ----
+  { id: "warm-loops", cat: "Warm-up", ic: "🌀", title: "Loop chains", min: 2, targets: ["baseline", "size"], hands: "both", styles: "both",
+    how: "Fill each line with one unbroken chain of ℓℓℓℓ loops — pen never lifts. Keep every loop top touching the same height and every bottom on the baseline. Move from the elbow, not the fingers.",
+    sheet: { kind: "ruled" } },
+  { id: "warm-waves", cat: "Warm-up", ic: "〰️", title: "Waves and zigzags", min: 2, targets: ["baseline", "speed"], hands: "both", styles: "both",
+    how: "Alternate a line of smooth waves with a line of sharp zigzags, filling the x-height band exactly. This wakes up the wrist and teaches the hand where the ceiling and floor are.",
+    sheet: { kind: "ruled" } },
+  { id: "warm-ovals", cat: "Warm-up", ic: "⭕", title: "Continuous ovals", min: 2, targets: ["size", "slantC"], hands: "both", styles: "both",
+    how: "Draw overlapping ovals across the line without lifting — about 8 revolutions per oval, moving steadily right. Every oval leans at the same angle as the slant guides.",
+    sheet: { kind: "slant" } },
+  { id: "warm-pushpull", cat: "Warm-up", ic: "⏸️", title: "Push-pull strokes", min: 2, targets: ["slantC"], hands: "both", styles: "both",
+    how: "Straight downstrokes, evenly spaced, running the full height of the band. Match the slant rails exactly — this is the single fastest way to steady a wandering slant.",
+    sheet: { kind: "slant" } },
+  { id: "warm-air", cat: "Warm-up", ic: "🫱", title: "Air writing", min: 1, targets: ["speed"], hands: "both", styles: "both",
+    how: "No paper. Write big letters in the air with a straight arm, from the shoulder — 30 seconds clockwise ovals, 30 seconds counter-clockwise, then your name three times. Loosens the grip before you sit down.",
+    sheet: null },
+
+  // ---- slant ----
+  { id: "slant-rails", cat: "Slant", ic: "📐", title: "Slant rails", min: 3, targets: ["slantC"], hands: "both", styles: "both",
+    how: "Fill every line with ///// strokes riding the printed slant guides. Pick one angle and never vary it. Your slant score is a measure of consistency, not of angle — upright is perfectly fine as long as it is always upright.",
+    sheet: { kind: "slant" } },
+  { id: "slant-letters", cat: "Slant", ic: "📏", title: "Straight-stem letters", min: 4, targets: ["slantC", "size"], hands: "both", styles: "both",
+    how: "Rows of l, t, i, d, b — every letter built on a stem. The stems are the drill; the rest of the letter is decoration. Check by squinting: the stems should look like a picket fence.",
+    sheet: { kind: "slant", text: "l t i d b  l t i d b" } },
+  { id: "slant-switch", cat: "Slant", ic: "🔀", title: "Deliberate slant switching", min: 4, targets: ["slantC"], hands: "both", styles: "both",
+    how: "Write the same short sentence three times: once upright, once at 10° forward, once at 20°. Owning the angle on purpose is what stops it drifting by accident.",
+    sheet: { kind: "slant", text: "the same sentence three ways" } },
+
+  // ---- baseline ----
+  { id: "base-ruled", cat: "Baseline", ic: "📉", title: "Ruled-line discipline", min: 4, targets: ["baseline"], hands: "both", styles: "both",
+    how: "Write any text, but watch only one thing: every letter's foot must touch the ruled line — not float above, not dip below. Slow down at the ends of words, which is where lines start to sag.",
+    sheet: { kind: "ruled" } },
+  { id: "base-longwords", cat: "Baseline", ic: "🪜", title: "Long-word landings", min: 4, targets: ["baseline", "spacing"], hands: "both", styles: "both",
+    how: "Long words only — extraordinary, refrigerator, championship, comfortable. Long words are where a hand drifts off the line, so they are where the correction sticks.",
+    sheet: { kind: "ruled", text: "extraordinary refrigerator championship" } },
+  { id: "base-nolines", cat: "Baseline", ic: "⬜", title: "Blank-page baseline", min: 5, targets: ["baseline"], hands: "both", styles: "both",
+    how: "Print this sheet, slip it UNDER a blank page, and write on the blank page using the dark lines showing through. The goal is holding a line when the paper has none — which is most real paper.",
+    sheet: { kind: "ruled", bold: true } },
+
+  // ---- size ----
+  { id: "size-xheight", cat: "Size", ic: "📊", title: "x-height rows", min: 4, targets: ["size"], hands: "both", styles: "both",
+    how: "Rows of a, o, e, c, s — round letters only, every one filling the band from baseline to the dashed midline exactly. No ascenders, no descenders, nothing to hide behind.",
+    sheet: { kind: "ruled", text: "a o e c s  a o e c s  a o e c s" } },
+  { id: "size-ascdesc", cat: "Size", ic: "🔤", title: "Ascender & descender discipline", min: 4, targets: ["size"], hands: "both", styles: "both",
+    how: "Alternate b d h k l (up to the top line) with g j p q y (down to the bottom line). Uneven letter size is nearly always uneven ascenders — this is the fix.",
+    sheet: { kind: "ruled", text: "b d h k l  g j p q y" } },
+  { id: "size-shrink", cat: "Size", ic: "🔻", title: "Shrink ladder", min: 5, targets: ["size", "legibility"], hands: "both", styles: "both",
+    how: "Write the same sentence four times, each block half the height of the last. Control at large size transfers downward; starting small just bakes in the wobble.",
+    sheet: { kind: "ruled", ladder: true } },
+  { id: "size-boxes", cat: "Size", ic: "🔳", title: "Boxed letters", min: 4, targets: ["size", "spacing"], hands: "both", styles: "print",
+    how: "One letter per box, filling it corner to corner. Boxes make an inconsistent letter width impossible to miss — the way squared paper does for kids, which is exactly why it works.",
+    sheet: { kind: "boxes" } },
+
+  // ---- spacing ----
+  { id: "space-oh", cat: "Spacing", ic: "↔️", title: "The 'o' gap", min: 4, targets: ["spacing"], hands: "both", styles: "both",
+    how: "Write a sentence leaving exactly one 'o'-width between words — actually pencil a faint o in each gap for the first line, then remove the training wheels. Between letters, aim for half that.",
+    sheet: { kind: "ruled", text: "space o each o word o evenly" } },
+  { id: "space-minimum", cat: "Spacing", ic: "⛰️", title: "The minimum drill", min: 4, targets: ["spacing", "size"], hands: "both", styles: "both",
+    how: "Write 'minimum' over and over. It is the classic because it is nothing but identical strokes and identical gaps — any inconsistency in either shows up instantly.",
+    sheet: { kind: "ruled", text: "minimum minimum minimum" } },
+  { id: "space-columns", cat: "Spacing", ic: "🧱", title: "Column alignment", min: 4, targets: ["spacing", "baseline"], hands: "both", styles: "print",
+    how: "Write a short list on the grid — one word per row, all starting in the same column, all ending as close to even as you can manage. Trains the margin discipline that makes a page look tidy.",
+    sheet: { kind: "grid" } },
+
+  // ---- cursive ----
+  { id: "cur-joins", cat: "Cursive", ic: "🔗", title: "Ligature joins", min: 5, targets: ["legibility", "spacing"], hands: "both", styles: "cursive",
+    how: "Pairs only: un, in, an, om, ea, th, ing. The join is the skill in cursive — the letters you already know. Keep the pen down through the whole pair.",
+    sheet: { kind: "ruled", text: "un in an om ea th ing" } },
+  { id: "cur-minimum", cat: "Cursive", ic: "〽️", title: "Cursive minimum", min: 4, targets: ["size", "spacing"], hands: "both", styles: "cursive",
+    how: "'minimum' joined, without lifting once per word. Every hump the same width, every valley the same depth, every join the same angle.",
+    sheet: { kind: "ruled", text: "minimum minimum minimum" } },
+  { id: "cur-chain", cat: "Cursive", ic: "⛓️", title: "Letter chains", min: 4, targets: ["slantC", "size"], hands: "both", styles: "cursive",
+    how: "Unbroken lines of mmmm, nnnn, oooo, eeee. Nothing to spell, nothing to think about — just rhythm and even pressure.",
+    sheet: { kind: "slant", text: "mmmm nnnn oooo eeee" } },
+  { id: "cur-caps", cat: "Cursive", ic: "🅰️", title: "Capital forms", min: 5, targets: ["legibility"], hands: "both", styles: "cursive",
+    how: "Work through the capitals in families: the oval group (O C G Q), the loop group (L S J), the stem group (P B R D). Capitals are where cursive most often becomes unreadable.",
+    sheet: { kind: "ruled" } },
+
+  // ---- print ----
+  { id: "print-alphabet", cat: "Printing", ic: "🔡", title: "One form per letter", min: 5, targets: ["legibility", "size"], hands: "both", styles: "print",
+    how: "Full alphabet, lower then upper. Pick ONE shape for each letter — especially a, g, and k, which people unconsciously switch between — and commit to it. Consistency is what reads as neat.",
+    sheet: { kind: "ruled", text: "abcdefghijklm nopqrstuvwxyz" } },
+  { id: "print-numerals", cat: "Printing", ic: "🔢", title: "Numerals and dates", min: 3, targets: ["legibility"], hands: "both", styles: "print",
+    how: "0–9, then dates, phone numbers, and amounts. Numbers have no context to rescue them, so a sloppy 1/7 or 5/S actually costs you something. Give the 7 a crossbar and the 0 no slash.",
+    sheet: { kind: "boxes" } },
+
+  // ---- left hand ----
+  { id: "left-tilt", cat: "Left hand", ic: "↩️", title: "Paper tilt setup", min: 3, targets: ["baseline", "legibility"], hands: "L", styles: "both",
+    how: "Rotate the page 30–45° CLOCKWISE so the bottom-right corner points at your belly. Your hand now sits below the line instead of dragging through it — no hook, no smudge. Write two lines and feel the difference before doing anything else.",
+    sheet: { kind: "ruled" } },
+  { id: "left-under", cat: "Left hand", ic: "✋", title: "Under-writer position", min: 5, targets: ["legibility", "slantC"], hands: "L", styles: "both",
+    how: "Keep the wrist straight and the hand fully below the writing line for a whole page. If the wrist starts curling over the top, stop and re-tilt the paper — the hook is a symptom, the paper angle is the cause.",
+    sheet: { kind: "ruled" } },
+  { id: "left-big", cat: "Left hand", ic: "🔠", title: "Oversized letters", min: 5, targets: ["size", "baseline"], hands: "L", styles: "both",
+    how: "Letters two to three lines tall for the whole page. A new hand has no fine motor control yet, so give it gross motor control first — the size comes down on its own after a week or two.",
+    sheet: { kind: "ruled", xh: 14 } },
+  { id: "left-pull", cat: "Left hand", ic: "⬅️", title: "Pull-stroke alphabet", min: 5, targets: ["slantC", "legibility"], hands: "L", styles: "both",
+    how: "A left hand pushes strokes a right hand pulls, which is why the line skips. Work the alphabet slowly, noting which strokes push, and re-order those letters to pull where you can.",
+    sheet: { kind: "ruled", text: "abcdefghijklm nopqrstuvwxyz" } },
+
+  // ---- mirror ----
+  { id: "mirror-pairs", cat: "Mirror prime", ic: "🪞", title: "Prime and copy", min: 6, targets: ["match", "size"], hands: "both", styles: "both",
+    how: "On the shaded line write with your DOMINANT hand. On the plain line directly below, copy it with the other hand — same size, same slant, same rhythm. The dominant hand shows the new one what the target feels like. Photograph the whole page and analyze it in Mirror prime mode.",
+    sheet: { kind: "mirror" } },
+  { id: "mirror-sync", cat: "Mirror prime", ic: "🤲", title: "Simultaneous mirror", min: 5, targets: ["match"], hands: "both", styles: "print",
+    how: "A pen in each hand, both starting at the centre, writing outward at the same time — the non-dominant hand writes mirrored. Strange, fun, and unusually effective at waking up the weaker side.",
+    sheet: { kind: "ruled" } },
+
+  // ---- speed & endurance ----
+  { id: "speed-pangram", cat: "Speed", ic: "⚡", title: "Pangram sprint", min: 3, targets: ["speed", "legibility"], hands: "both", styles: "both",
+    how: "Write a pangram as many times as you can in three minutes, but stop the moment it stops being readable. The number you care about is legible repetitions, not repetitions.",
+    sheet: { kind: "ruled", text: PANGRAMS[0] } },
+  { id: "speed-timed", cat: "Speed", ic: "⏱️", title: "Timed page fill", min: 10, targets: ["speed", "baseline"], hands: "both", styles: "both",
+    how: "Fill one full page, timed. Log the minutes — that number over a full page is your real writing speed, and it should fall while your scores hold. Photograph the page afterwards.",
+    sheet: { kind: "ruled" } },
+  { id: "endure-page", cat: "Speed", ic: "💪", title: "Endurance page", min: 15, targets: ["speed", "size"], hands: "both", styles: "both",
+    how: "Write continuously for fifteen minutes without shaking out your hand. Watch the last few lines — that is where fatigue shows, and where a new hand actually builds. Stop if you feel a cramp, not before.",
+    sheet: { kind: "ruled" } },
+
+  // ---- legibility ----
+  { id: "leg-address", cat: "Legibility", ic: "✉️", title: "Real-world legibility", min: 4, targets: ["legibility", "spacing"], hands: "both", styles: "print",
+    how: "Address an envelope, write a shopping list, fill a form. Real formats you would actually hand to someone — the only true test of whether your handwriting works.",
+    sheet: { kind: "ruled" } },
+  { id: "leg-selfread", cat: "Legibility", ic: "👓", title: "Cold read-back", min: 4, targets: ["legibility"], hands: "both", styles: "both",
+    how: "Write half a page of unfamiliar text, put it away, and read it back tomorrow. Anything you stumble on is a letter shape to drill. Run the OCR check on it too — the engine is a harsh but honest reader.",
+    sheet: { kind: "ruled", text: PANGRAMS[2] } },
+];
+
+const DRILL_MAP = Object.fromEntries(DRILLS.map(d => [d.id, d]));
+const CATEGORIES = [...new Set(DRILLS.map(d => d.cat))];
+const drillFits = (d, hand, style) =>
+  (d.hands === "both" || d.hands === hand) && (d.styles === "both" || d.styles === style);
+
+// ---------- printable guide sheets (SVG, millimetre viewBox so print is true-to-size) ----------
+// Greys are hard-coded: a guide sheet is always printed on white paper, so it must not
+// follow the screen theme. Light enough to write over, dark enough to see through a sheet.
+const SHEET_INK = { base: "#8d97a3", mid: "#c2c9d1", edge: "#dfe4e9", slant: "#e4e8ec", trace: "#d3d8dd", tint: "#f2f6fb" };
+// How many ruled lines fit one page at a given x-height (asc + desc + gap = xh * 2.75).
+// 240mm, not the full A4 height: the sheet must also fit US Letter's shorter printable
+// area (259mm at 10mm margins) or every print spills onto a second, near-empty page.
+const defaultLines = xh => Math.max(1, Math.floor(240 / (xh * 2.75)));
+
+function sheetSvg(spec, opts = {}) {
+  const kind = spec.kind || "ruled";
+  const xh = opts.xh || spec.xh || 8;                 // x-height in mm
+  const slant = opts.slant ?? spec.slant ?? 0;        // degrees, positive = forward
+  const bold = !!spec.bold;
+  const W = 190;                                       // A4 width less 10mm margins
+  const asc = xh * 1.55, desc = xh * 0.65, gap = xh * 0.55;
+  const lineH = asc + desc + gap;
+  const wanted = opts.lines || spec.lines || defaultLines(xh);
+  const n = Math.max(1, Math.min(40, wanted));
+  const H = Math.max(60, n * lineH + 14);
+  const L = (x1, y1, x2, y2, c, w = 0.3, dash = "") =>
+    `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="${c}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
+  let out = "";
+
+  if (kind === "grid") {
+    const cell = xh;
+    for (let x = 0; x <= W; x += cell) out += L(x, 8, x, H - 4, SHEET_INK.edge, 0.25);
+    for (let y = 8; y <= H - 4; y += cell) out += L(0, y, W, y, SHEET_INK.edge, 0.25);
+  } else if (kind === "boxes") {
+    const cell = xh * 1.6, cols = Math.floor(W / cell), rows = Math.min(n, Math.floor((H - 12) / cell));
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const x = c * cell, y = 8 + r * cell;
+        out += `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="none" stroke="${SHEET_INK.mid}" stroke-width="0.25"/>`;
+        out += L(x, y + cell * 0.66, x + cell, y + cell * 0.66, SHEET_INK.edge, 0.2, "1 1");
+      }
+  } else {
+    // every ruled family: baseline + dashed x-height + faint ascender/descender rails
+    const scale = spec.ladder ? [1, 1, 0.75, 0.75, 0.5, 0.5, 0.5, 0.35, 0.35, 0.35] : null;
+    let y = 8;
+    for (let i = 0; i < n; i++) {
+      const k = scale ? (scale[i % scale.length]) : 1;
+      const a = asc * k, dsc = desc * k, xhk = xh * k;
+      const top = y, basey = y + a, bot = basey + dsc;
+      if (basey > H - 4) break;
+      if (kind === "mirror" && i % 2 === 0)
+        out += `<rect x="0" y="${(top - 1).toFixed(2)}" width="${W}" height="${(bot - top + 2).toFixed(2)}" fill="${SHEET_INK.tint}"/>`;
+      out += L(0, top, W, top, SHEET_INK.edge, 0.25);                       // ascender
+      out += L(0, basey - xhk, W, basey - xhk, SHEET_INK.mid, 0.25, "1.6 1.6"); // x-height (dashed — the writing convention)
+      out += L(0, basey, W, basey, SHEET_INK.base, bold ? 0.6 : 0.38);      // baseline
+      out += L(0, bot, W, bot, SHEET_INK.edge, 0.25);                       // descender
+      if (kind === "slant" && slant !== 0) {
+        const t = Math.tan(slant * Math.PI / 180), band = bot - top;
+        for (let x = -band * Math.abs(t); x < W; x += xhk * 1.4)
+          out += L(x + t * band, top, x, bot, SHEET_INK.slant, 0.25);
+      } else if (kind === "slant") {
+        for (let x = 0; x < W; x += xhk * 1.4) out += L(x, top, x, bot, SHEET_INK.slant, 0.25);
+      }
+      if (kind === "mirror")
+        out += `<text x="${W - 1}" y="${(basey - 0.8).toFixed(2)}" text-anchor="end" font-size="${(xhk * 0.4).toFixed(2)}" fill="${SHEET_INK.mid}">${i % 2 === 0 ? "dominant" : "copy"}</text>`;
+      // first line of a text drill is printed faintly to trace over
+      if (spec.text && i === 0)
+        out += `<text x="0.5" y="${(basey - 0.4).toFixed(2)}" font-size="${(xhk * 1.42).toFixed(2)}" fill="${SHEET_INK.trace}" font-family="Georgia, 'Times New Roman', serif"${slant ? ` transform="skewX(${-slant})" transform-origin="0 ${basey.toFixed(2)}"` : ""}>${esc(spec.text)}</text>`;
+      y += a + dsc + gap * k;
+    }
+  }
+  return `<svg viewBox="0 0 ${W} ${H.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Handwriting practice guide sheet">` +
+    `<rect width="${W}" height="${H.toFixed(1)}" fill="#fff"/>${out}</svg>`;
+}
+
+// ---------- plan generator ----------
+// Shape borrowed from the daily routine every handwriting course teaches:
+// warm up, drill the weakness, apply it in real writing, then capture evidence.
+function weakestMetrics(sessions, hand, n = 2) {
+  const recent = sessions.filter(s => s.kind !== "drill" && s.results?.[hand]).slice(-8);
+  const avg = {};
+  for (const k of ["slantC", "baseline", "size", "spacing", "legibility"]) {
+    const v = recent.map(s => s.results[hand][k]).filter(x => x != null);
+    if (v.length) avg[k] = v.reduce((a, b) => a + b, 0) / v.length;
+  }
+  return Object.keys(avg).sort((a, b) => avg[a] - avg[b]).slice(0, n);
+}
+// `pick` is injected so the routine can be reshuffled deterministically in tests
+function buildPlan(sessions, { hand, style, mode }, weak = [], pick = arr => arr[0]) {
+  const used = new Set();
+  const take = filter => {
+    const pool = DRILLS.filter(d => drillFits(d, hand, style) && !used.has(d.id) && filter(d));
+    if (!pool.length) return null;
+    const d = pick(pool);
+    used.add(d.id);
+    return d;
+  };
+  const plan = [];
+  const warm = take(d => d.cat === "Warm-up");
+  if (warm) plan.push(warm);
+  // Warm-ups are excluded from every later slot — several of them happen to train slant
+  // and size, and without this the whole routine collapses into five warm-ups.
+  const core = d => d.cat !== "Warm-up";
+  // the weakest metric gets two drills; the runner-up gets one
+  const targets = weak.length ? weak : ["baseline", "size"];
+  for (const [t, count] of [[targets[0], 2], [targets[1], 1]]) {
+    if (!t) continue;
+    for (let i = 0; i < count; i++) {
+      const d = take(d => core(d) && d.targets.includes(t));
+      if (d) plan.push(d);
+    }
+  }
+  if (hand === "L") { const l = take(d => d.hands === "L"); if (l) plan.push(l); }
+  if (mode === "mirror") { const m = take(d => d.cat === "Mirror prime"); if (m) plan.push(m); }
+  // finish on something you can photograph, so the routine ends with evidence
+  const capture = take(d => core(d) && d.targets.includes("speed")) || take(d => d.cat === "Legibility");
+  if (capture) plan.push(capture);
+  return plan;
+}
+
+// ---------- achievements ----------
+// Deliberately small and honest: each one is a real milestone in learning to write,
+// not a participation sticker. `test` gets the derived stats so it stays a pure function.
+const BADGES = [
+  { id: "first", e: "🌱", n: "First page", d: "Analyze one page", test: s => s.pages >= 1 },
+  { id: "streak3", e: "🔥", n: "Three in a row", d: "3-day streak", test: s => s.bestStreak >= 3 },
+  { id: "streak7", e: "🗓️", n: "Full week", d: "7-day streak", test: s => s.bestStreak >= 7 },
+  { id: "streak30", e: "🏆", n: "A month", d: "30-day streak", test: s => s.bestStreak >= 30 },
+  { id: "lefty", e: "🫲", n: "Off-hand opened", d: "Log a left-hand page", test: s => s.leftPages >= 1 },
+  { id: "lefty10", e: "✌️", n: "Ambidextrous", d: "10 left-hand pages", test: s => s.leftPages >= 10 },
+  { id: "score80", e: "⭐", n: "Solid hand", d: "Score 80 overall", test: s => s.best >= 80 },
+  { id: "score90", e: "💎", n: "Fine hand", d: "Score 90 overall", test: s => s.best >= 90 },
+  { id: "drill25", e: "🎯", n: "Drilled in", d: "25 drills logged", test: s => s.drills >= 25 },
+  { id: "hours5", e: "⏳", n: "Five hours", d: "300 minutes practised", test: s => s.minutes >= 300 },
+  { id: "mirror", e: "🪞", n: "Mirrored", d: "Log a mirror-prime page", test: s => s.mirrors >= 1 },
+  { id: "cursive", e: "✒️", n: "Joined up", d: "Log a cursive page", test: s => s.cursive >= 1 },
+];
 // ---------- coaching tips ----------
 const METRIC_TIP = {
   slantC: "Slant wanders between lines — pick one slant (upright is fine) and fill a warm-up line with ///// strokes at that exact angle first.",
@@ -692,23 +1351,21 @@ const STYLE_TIP = {
   cursive: "Cursive: keep the pen down through whole words; the joins are the skill. Drill the word 'minimum'.",
 };
 const HAND_TIP = {
-  R: [
-    "Warm up 2 minutes before writing: loops (ℓℓℓ), waves, zigzags.",
-    "Slow down ~20% — accuracy first; speed comes back on its own.",
-  ],
-  L: [
-    "Tilt the paper 30–45° clockwise so your hand stays below the writing line — prevents hooking and smudging.",
-    "Move from the elbow and shoulder, not the fingers, while the hand builds endurance.",
-    "Go big first: letters 2–3 lines tall for a week, then shrink.",
-  ],
+  R: ["Warm up 2 minutes before writing: loops (ℓℓℓ), waves, zigzags.",
+      "Slow down ~20% — accuracy first; speed comes back on its own."],
+  L: ["Tilt the paper 30–45° clockwise so your hand stays below the writing line — prevents hooking and smudging.",
+      "Move from the elbow and shoulder, not the fingers, while the hand builds endurance.",
+      "Go big first: letters 2–3 lines tall for a week, then shrink."],
 };
 const MIRROR_TIP = "Write the dominant line slowly enough that the copy can match its rhythm — the pair should feel like the same speed.";
 
-// ---------- options state ----------
-const $ = id => document.getElementById(id);
-const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const prefs = Object.assign({ hand: "R", style: "print", mode: "single", orient: "portrait" }, JSON.parse(localStorage.getItem("hwh-prefs") || "{}"));
+// ---------- preferences ----------
+const prefs = Object.assign(
+  { hand: "R", style: "print", mode: "single", orient: "portrait", theme: "system", goalMin: 90, slant: 0, xh: 8, tab: "today" },
+  JSON.parse(localStorage.getItem("hwh-prefs") || "{}"));
+const savePrefs = () => localStorage.setItem("hwh-prefs", JSON.stringify(prefs));
 const other = h => h === "R" ? "L" : "R";
+const handName = h => h === "R" ? "Right" : "Left";
 
 function applyOrient() {
   // ponytail: lock() only sticks in the installed app (and never on iOS) — the
@@ -718,8 +1375,19 @@ function applyOrient() {
     else screen.orientation.lock(prefs.orient + "-primary").catch(() => {});
   } catch (e) {}
 }
+function applyTheme() {
+  if (prefs.theme === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", prefs.theme);
+  $("theme-btn").textContent = { system: "◐", light: "☀", dark: "☾" }[prefs.theme];
+  $("theme-btn").title = "Theme: " + prefs.theme;
+}
+$("theme-btn").onclick = () => {
+  prefs.theme = { system: "light", light: "dark", dark: "system" }[prefs.theme];
+  savePrefs(); applyTheme(); renderAll();
+};
+
 function syncOptions() {
-  localStorage.setItem("hwh-prefs", JSON.stringify(prefs));
+  savePrefs();
   for (const v of ["portrait", "landscape", "auto"]) $("or-" + v).classList.toggle("on", prefs.orient === v);
   applyOrient();
   $("hand-R").classList.toggle("on", prefs.hand === "R");
@@ -736,14 +1404,470 @@ function syncOptions() {
 for (const [id, k, v] of [["hand-R", "hand", "R"], ["hand-L", "hand", "L"],
   ["style-print", "style", "print"], ["style-cursive", "style", "cursive"],
   ["mode-single", "mode", "single"], ["mode-mirror", "mode", "mirror"]]) {
-  $(id).onclick = () => { prefs[k] = v; syncOptions(); if (cur.img) runAnalysis(cur.img, true); };
+  $(id).onclick = () => { prefs[k] = v; syncOptions(); renderAll(); if (cur.img) runAnalysis(cur.img, true); };
 }
 for (const v of ["portrait", "landscape", "auto"])
   $("or-" + v).onclick = () => { prefs.orient = v; syncOptions(); };
+for (const [id, key, min, max] of [["goal-min", "goalMin", 10, 1200], ["slant-pref", "slant", -30, 30], ["xh-pref", "xh", 4, 16]]) {
+  $(id).value = prefs[key];
+  $(id).onchange = e => {
+    const v = +e.target.value;
+    prefs[key] = Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : prefs[key];
+    e.target.value = prefs[key];
+    savePrefs(); renderAll();
+  };
+}
+applyTheme();
 syncOptions();
 
+// ---------- tabs ----------
+function showTab(name) {
+  prefs.tab = name; savePrefs();
+  for (const b of $("tabs").children) b.classList.toggle("on", b.dataset.tab === name);
+  for (const p of document.querySelectorAll(".tab-panel")) p.classList.toggle("on", p.id === "tab-" + name);
+  scrollTo({ top: 0 });
+  renderAll();
+}
+for (const b of $("tabs").children) b.onclick = () => showTab(b.dataset.tab);
+
+// ---------- derived stats ----------
+const isDrill = s => s.kind === "drill";
+const weekStart = t => { // Monday-based
+  const d = new Date(t); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.getTime();
+};
+function deriveStats(S) {
+  const days = new Set(S.map(s => dayKey(s.t)));
+  let streak = 0;
+  { const d = new Date();
+    if (!days.has(dayKey(d))) d.setDate(d.getDate() - 1);
+    while (days.has(dayKey(d))) { streak++; d.setDate(d.getDate() - 1); } }
+  // longest run anywhere in the history, not just the one ending today
+  let bestStreak = 0, run = 0, prev = null;
+  for (const k of [...days].sort()) {
+    const t = new Date(k + "T12:00").getTime();
+    run = prev != null && Math.round((t - prev) / DAY) === 1 ? run + 1 : 1;
+    bestStreak = Math.max(bestStreak, run);
+    prev = t;
+  }
+  const pageS = S.filter(s => !isDrill(s));
+  const ws = weekStart(Date.now()), today = dayKey(Date.now());
+  const sum = arr => arr.reduce((a, s) => a + (s.durationMin || 0), 0);
+  return {
+    all: S, pages: pageS.length, drills: S.filter(isDrill).length,
+    minutes: sum(S), weekMin: sum(S.filter(s => s.t >= ws)), todayMin: sum(S.filter(s => dayKey(s.t) === today)),
+    streak, bestStreak,
+    best: Math.max(-1, ...pageS.flatMap(s => Object.values(s.results || {}).map(r => r.overall ?? -1))),
+    leftPages: pageS.filter(s => s.results?.L).length,
+    rightPages: pageS.filter(s => s.results?.R).length,
+    mirrors: pageS.filter(s => s.mode === "mirror").length,
+    cursive: pageS.filter(s => s.style === "cursive").length,
+    daysActive: days.size,
+  };
+}
+function metricAvg(S, hand, key, lastN = 8) {
+  const v = S.filter(s => !isDrill(s) && s.results?.[hand]?.[key] != null).slice(-lastN).map(s => s.results[hand][key]);
+  return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
+}
+
+// ---------- TODAY ----------
+let planCache = null;
+function planKey() { return dayKey(Date.now()) + "|" + prefs.hand + "|" + prefs.style + "|" + prefs.mode; }
+function loadPlan(S, reroll) {
+  const saved = JSON.parse(localStorage.getItem("hwh-plan") || "null");
+  if (!reroll && saved && saved.key === planKey()) return saved;
+  const weak = weakestMetrics(S, prefs.hand);
+  // reshuffle rotates the pool instead of using Math.random, so the same day keeps a stable plan
+  const seed = reroll ? (saved?.seed || 0) + 1 : 0;
+  const plan = buildPlan(S, prefs, weak, pool => pool[seed % pool.length]);
+  const rec = { key: planKey(), seed, weak, ids: plan.map(d => d.id) };
+  localStorage.setItem("hwh-plan", JSON.stringify(rec));
+  return rec;
+}
+function renderToday(S, st) {
+  const now = new Date();
+  const h = now.getHours();
+  $("greeting").textContent = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  $("today-date").textContent = now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  $("hdr-streak").textContent = st.streak ? `🔥 ${st.streak}d` : "—";
+  $("hdr-streak").classList.toggle("hot", st.streak >= 3);
+
+  const pct = Math.min(100, Math.round(st.weekMin / prefs.goalMin * 100));
+  $("today-min").textContent = st.weekMin;
+  $("today-goal-sub").textContent = `of ${prefs.goalMin} min this week`;
+  $("goal-bar").style.width = pct + "%";
+  $("goal-bar").classList.toggle("done", pct >= 100);
+  $("goal-line").textContent = pct >= 100
+    ? `Goal met — ${st.weekMin - prefs.goalMin} min over. ${st.todayMin ? st.todayMin + " min today." : ""}`
+    : `${prefs.goalMin - st.weekMin} min to go · ${st.todayMin} min logged today`;
+
+  planCache = loadPlan(S, false);
+  renderPlan(S);
+
+  const dR = deltaFor(S, "R"), dL = deltaFor(S, "L");
+  const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
+  const lastPage = [...S].reverse().find(s => !isDrill(s));
+  $("today-tiles").innerHTML = [
+    [st.streak, "Day streak", st.bestStreak > st.streak ? `best ${st.bestStreak}` : "personal best"],
+    [st.pages, "Pages analyzed", st.drills + " drills logged"],
+    [st.best < 0 ? "–" : st.best, "Best overall", "all-time high"],
+    [lastPage ? (lastPage.results[prefs.hand]?.overall ?? "–") : "–", "Last " + handName(prefs.hand).toLowerCase(), lastPage ? fmtDate(lastPage.t) : "no pages yet"],
+    [`${sign(dR)} · ${sign(dL)}`, "14-day change", "right · left"],
+    [fmtMin(st.minutes), "Total time", `${st.daysActive} active days`],
+  ].map(([v, l, d]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join("");
+
+  drawProfile(S);
+}
+function deltaFor(S, h) {
+  const now = Date.now(), d14 = 14 * DAY;
+  const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  const pick = (lo, hi) => avg(S.filter(s => !isDrill(s) && s.t > lo && s.t <= hi).map(s => s.results?.[h]?.overall).filter(v => v != null));
+  const rec = pick(now - d14, now), old = pick(now - 2 * d14, now - d14);
+  return rec != null && old != null ? Math.round(rec - old) : null;
+}
+function renderPlan(S) {
+  const doneToday = new Set(S.filter(s => isDrill(s) && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
+  const drills = planCache.ids.map(id => DRILL_MAP[id]).filter(Boolean);
+  $("plan-why").textContent = planCache.weak.length
+    ? `Aimed at your weakest ${handName(prefs.hand).toLowerCase()}-hand metrics: ${planCache.weak.map(k => METRIC_LABEL[k].toLowerCase()).join(" and ")}.`
+    : "A balanced starter routine — analyze a page and the plan starts targeting your weak spots.";
+  $("plan-list").innerHTML = drills.map(d => `
+    <button class="planitem${doneToday.has(d.id) ? " done" : ""}" data-drill="${d.id}">
+      <span class="ic">${doneToday.has(d.id) ? "✓" : d.ic}</span>
+      <span class="body"><span class="t">${esc(d.title)}</span><span class="s">${d.min} min · ${esc(d.cat)}</span></span>
+      <span class="chev">›</span>
+    </button>`).join("");
+  const total = drills.reduce((a, d) => a + d.min, 0), done = drills.filter(d => doneToday.has(d.id)).length;
+  $("plan-progress").textContent = `${done} of ${drills.length} done · about ${total} min all in`;
+  bindDrillButtons("plan-list");
+}
+$("plan-reroll").onclick = () => { planCache = loadPlan(loadSessions(), true); renderPlan(loadSessions()); };
+
+// ---------- PRACTICE ----------
+function renderPractice(S) {
+  const cat = $("drill-cat").value, hand = $("drill-hand").value, target = $("drill-target").value;
+  const list = DRILLS.filter(d =>
+    (cat === "all" || d.cat === cat) &&
+    (hand === "any" || d.hands === "both" || d.hands === hand) &&
+    (target === "all" || d.targets.includes(target)));
+  $("drill-count").textContent = `${list.length} of ${DRILLS.length}`;
+  $("drill-grid").innerHTML = list.map(d => `
+    <div class="drill">
+      <h4>${d.ic} ${esc(d.title)}</h4>
+      <div class="meta">
+        <span class="tag">${d.min} min</span>
+        ${d.hands !== "both" ? `<span class="tag ${d.hands}">${handName(d.hands)} hand</span>` : ""}
+        ${d.styles !== "both" ? `<span class="tag">${d.styles === "print" ? "Printing" : "Cursive"} only</span>` : ""}
+        ${d.targets.map(t => `<span class="tag">${esc(METRIC_LABEL[t] || t)}</span>`).join("")}
+      </div>
+      <p class="why">${esc(d.how)}</p>
+      <div class="row"><button class="act" data-drill="${d.id}">Start</button></div>
+    </div>`).join("");
+  bindDrillButtons("drill-grid");
+
+  const logs = S.filter(isDrill).slice().reverse();
+  $("drill-empty").classList.toggle("hidden", logs.length > 0);
+  $("drill-table").classList.toggle("hidden", logs.length === 0);
+  $("drill-table").querySelector("tbody").innerHTML = logs.map(s => `
+    <tr><td>${new Date(s.t).toLocaleDateString()}</td>
+      <td>${esc(DRILL_MAP[s.drillId]?.title || s.drillId || "Drill")}</td>
+      <td style="color:${s.hand === "R" ? "var(--right)" : "var(--left)"}">${handName(s.hand || "R")}</td>
+      <td>${s.durationMin ?? "–"}</td>
+      <td><button data-del="${s.id}" title="Delete">✕</button></td></tr>`).join("");
+  bindDeletes("drill-table");
+}
+function bindDrillButtons(rootId) {
+  $(rootId).querySelectorAll("[data-drill]").forEach(b => b.onclick = () => openDrill(b.dataset.drill));
+}
+for (const id of ["drill-cat", "drill-hand", "drill-target"]) $(id).onchange = () => renderPractice(loadSessions());
+$("drill-cat").innerHTML = `<option value="all">All categories</option>` + CATEGORIES.map(c => `<option>${esc(c)}</option>`).join("");
+
+// ---------- drill runner ----------
+let runDrill = null, timer = { id: null, left: 0, total: 0, running: false };
+const RING = 2 * Math.PI * 58;
+$("timer-arc").setAttribute("stroke-dasharray", RING.toFixed(1));
+function paintTimer() {
+  const m = Math.floor(timer.left / 60), s = timer.left % 60;
+  $("timer-clock").textContent = `${m}:${String(s).padStart(2, "0")}`;
+  const frac = timer.total ? timer.left / timer.total : 0;
+  $("timer-arc").setAttribute("stroke-dashoffset", (RING * (1 - frac)).toFixed(1));
+  $("timer-toggle").textContent = timer.running ? "Pause" : timer.left === timer.total ? "Start" : "Resume";
+}
+function stopTimer() { clearInterval(timer.id); timer.id = null; timer.running = false; }
+$("timer-toggle").onclick = () => {
+  if (timer.running) { stopTimer(); paintTimer(); return; }
+  timer.running = true;
+  timer.id = setInterval(() => {
+    timer.left = Math.max(0, timer.left - 1);
+    if (!timer.left) {
+      stopTimer();
+      $("run-status").textContent = "Time — log it below when you're done writing.";
+      // ponytail: no audio file to ship; the Vibration API covers phones, desktop just shows the text
+      try { navigator.vibrate?.([200, 100, 200]); } catch (e) {}
+    }
+    paintTimer();
+  }, 1000);
+  paintTimer();
+};
+$("timer-reset").onclick = () => { stopTimer(); timer.left = timer.total; paintTimer(); $("run-status").textContent = ""; };
+
+function openDrill(id) {
+  const d = DRILL_MAP[id];
+  if (!d) return;
+  runDrill = d;
+  $("sheet-title").textContent = d.ic + " " + d.title;
+  $("run-how").textContent = d.how;
+  $("run-tags").innerHTML = `<span class="tag">${esc(d.cat)}</span><span class="tag">${d.min} min</span>` +
+    d.targets.map(t => `<span class="tag">${esc(METRIC_LABEL[t] || t)}</span>`).join("");
+  stopTimer();
+  timer.total = timer.left = d.min * 60;
+  paintTimer();
+  $("run-status").textContent = "";
+  $("run-min").value = d.min;
+  setRunHand(d.hands === "L" ? "L" : d.hands === "R" ? "R" : prefs.hand);
+  // a drill's own x-height wins over the global preference (the left-hand "go big" drill
+  // asks for 14mm); the user can still override either in the controls below the sheet
+  const xh = d.sheet?.xh || prefs.xh;
+  $("sheet-xh").value = xh;
+  $("sheet-lines").value = d.sheet?.lines || defaultLines(xh);
+  $("sheet-slant").value = prefs.slant;
+  $("sheet-opts").classList.toggle("hidden", !d.sheet);
+  $("sheet-print").classList.toggle("hidden", !d.sheet);
+  paintSheet();
+  $("sheet").classList.add("on");
+  $("sheet-body").scrollTop = 0;
+}
+let runHand = "R";
+function setRunHand(h) {
+  runHand = h;
+  $("run-R").classList.toggle("on", h === "R");
+  $("run-L").classList.toggle("on", h === "L");
+}
+$("run-R").onclick = () => setRunHand("R");
+$("run-L").onclick = () => setRunHand("L");
+function paintSheet() {
+  if (!runDrill?.sheet) { $("sheet-paper").innerHTML = ""; return; }
+  $("sheet-paper").innerHTML = sheetSvg(runDrill.sheet, {
+    lines: +$("sheet-lines").value || undefined,
+    xh: +$("sheet-xh").value || prefs.xh,
+    slant: +$("sheet-slant").value || 0,
+  });
+}
+for (const id of ["sheet-lines", "sheet-xh", "sheet-slant"]) $(id).oninput = paintSheet;
+$("sheet-print").onclick = () => print();
+$("sheet-close").onclick = () => { stopTimer(); $("sheet").classList.remove("on"); };
+addEventListener("keydown", e => { if (e.key === "Escape" && $("sheet").classList.contains("on")) $("sheet-close").click(); });
+$("run-log").onclick = () => {
+  if (!runDrill) return;
+  const mins = Math.max(1, Math.min(240, +$("run-min").value || runDrill.min));
+  const s = loadSessions();
+  s.push({ id: newId(), t: Date.now(), kind: "drill", drillId: runDrill.id, hand: runHand, style: prefs.style, durationMin: mins });
+  saveSessions(s);
+  $("run-status").textContent = `Logged ${mins} min of ${runDrill.title}. ✓`;
+  renderAll();
+  if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+};
+
+// ---------- PROGRESS ----------
+function renderProgress(S, st) {
+  const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
+  $("stat-tiles").innerHTML = [
+    [st.pages + st.drills, "Sessions", `${st.pages} pages · ${st.drills} drills`, null],
+    [fmtMin(st.minutes), "Total time", "logged minutes", null],
+    [st.streak, "Day streak", `best ${st.bestStreak}`, null],
+    [st.best < 0 ? "–" : st.best, "Best overall", "all-time high", null],
+    [metricAvg(S, "R", "overall") ?? "–", "Right average", "last 8 pages", sparkline(S, "R")],
+    [metricAvg(S, "L", "overall") ?? "–", "Left average", "last 8 pages", sparkline(S, "L")],
+  ].map(([v, l, d, sp]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div><div class="d">${d}</div>${sp || ""}</div>`).join("");
+
+  drawHeat(S);
+  drawTrend(S);
+
+  $("badges").innerHTML = BADGES.map(b => {
+    const got = b.test(st);
+    return `<div class="badge${got ? "" : " locked"}" title="${esc(b.d)}"><div class="e">${b.e}</div><div class="n">${esc(b.n)}</div><div class="d">${esc(b.d)}</div></div>`;
+  }).join("");
+
+  const pages = S.filter(s => !isDrill(s));
+  $("empty").classList.toggle("hidden", pages.length > 0);
+  $("histtable").classList.toggle("hidden", pages.length === 0);
+  $("hist-note").textContent = pages.length ? `${pages.length} analyzed page${pages.length === 1 ? "" : "s"}` : "";
+  $("histtable").querySelector("tbody").innerHTML = [...pages].reverse().map(s => {
+    const hands = Object.keys(s.results).sort().reverse().map(h =>
+      `<span style="color:${h === "R" ? "var(--right)" : "var(--left)"}">${h} ${s.results[h].overall ?? "–"}</span>`).join(" · ");
+    return `<tr><td>${new Date(s.t).toLocaleDateString()}</td><td>${Object.keys(s.results).sort().reverse().join("+")}</td>
+      <td>${esc(s.style)}</td><td>${s.mode === "mirror" ? "mirror" + (s.match != null ? ` ${s.match}%` : "") : "single"}</td>
+      <td>${s.durationMin ?? "–"}</td><td>${hands}</td>
+      <td><button data-del="${s.id}" title="Delete session">✕</button></td></tr>`;
+  }).join("");
+  bindDeletes("histtable");
+}
+function bindDeletes(rootId) {
+  $(rootId).querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    // ponytail: two-tap confirm — confirm() is silently blocked in sandboxed iframes
+    if (b.textContent !== "Sure?") { b.textContent = "Sure?"; return; }
+    const id = b.dataset.del;
+    saveSessions(loadSessions().filter(s => s.id !== id));
+    // tombstone so the delete survives the next sync instead of coming back
+    localStorage.setItem(TOMB_KEY, JSON.stringify(mergeTombs(loadTombs(), [{ id, at: Date.now() }])));
+    if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+    renderAll();
+  });
+}
+
+// ---------- charts ----------
+const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+
+// tiny inline trend for a stat tile — no axes, no labels, just the shape
+function sparkline(S, hand) {
+  const pts = S.filter(s => !isDrill(s) && s.results?.[hand]?.overall != null).slice(-12).map(s => s.results[hand].overall);
+  if (pts.length < 2) return "";
+  const w = 88, h = 20, lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
+  const d = pts.map((v, i) => `${(i / (pts.length - 1) * w).toFixed(1)},${(h - (v - lo) / span * h).toFixed(1)}`).join(" ");
+  const col = hand === "R" ? "var(--right)" : "var(--left)";
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">` +
+    `<polyline fill="none" stroke="${col}" stroke-width="1.5" points="${d}"/></svg>`;
+}
+
+// metric profile: grouped horizontal bars, one pair per metric.
+// (Deliberately not a radar — radar distorts area and makes 5 unrelated 0-100 scales
+//  look like a shape you can compare; bars just read left to right.)
+function drawProfile(S) {
+  const keys = ["slantC", "baseline", "size", "spacing", "legibility"];
+  const rows = keys.map(k => ({ k, label: METRIC_LABEL[k], R: metricAvg(S, "R", k), L: metricAvg(S, "L", k) }))
+    .filter(r => r.R != null || r.L != null);
+  $("profile-empty").classList.toggle("hidden", rows.length > 0);
+  if (!rows.length) { $("profile-chart").innerHTML = ""; return; }
+  const W = Math.max(320, $("profile-chart").clientWidth || 640);
+  const labW = 116, valW = 34, rowH = 34, barH = 9, gap = 2; // 2px surface gap between the pair
+  const H = rows.length * rowH + 18;
+  const plotW = W - labW - valW - 6;
+  const X = v => labW + v / 100 * plotW;
+  let out = "";
+  for (const v of [25, 50, 75, 100])
+    out += `<line x1="${X(v)}" x2="${X(v)}" y1="6" y2="${H - 14}" stroke="var(--grid)"/>` +
+           `<text x="${X(v)}" y="${H - 3}" text-anchor="middle">${v}</text>`;
+  rows.forEach((r, i) => {
+    const y = 8 + i * rowH;
+    out += `<text x="0" y="${y + 13}" fill="var(--ink-2)">${esc(r.label)}</text>`;
+    [["R", r.R, "var(--right)"], ["L", r.L, "var(--left)"]].forEach(([h, v, col], j) => {
+      if (v == null) return;
+      const by = y + j * (barH + gap);
+      out += `<rect x="${labW}" y="${by}" width="${(X(v) - labW).toFixed(1)}" height="${barH}" rx="3" fill="${col}"/>` +
+             `<rect class="hit" x="${labW}" y="${by - 3}" width="${plotW}" height="${barH + 6}" fill="transparent" data-tip="${esc(r.label)} · ${handName(h)} · ${v}"/>` +
+             `<text x="${(X(v) + 5).toFixed(1)}" y="${by + barH - 1}" fill="var(--ink-2)">${v}</text>`;
+    });
+  });
+  $("profile-chart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Average score per metric, right and left hand">${out}</svg>`;
+  $("profile-note").textContent = "average of your last 8 pages per hand";
+  bindTips("profile-chart");
+}
+
+// activity calendar: one cell per day, sequential blue ramp on minutes practised
+function drawHeat(S) {
+  const WEEKS = 18;
+  const byDay = {};
+  for (const s of S) byDay[dayKey(s.t)] = (byDay[dayKey(s.t)] || 0) + (s.durationMin || 0);
+  const end = new Date(); end.setHours(12, 0, 0, 0);
+  const start = new Date(end); start.setDate(start.getDate() - (WEEKS * 7 - 1));
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7)); // align to Monday
+  const cells = [];
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const k = dayKey(d), m = byDay[k] || 0;
+    // fixed bins: a ramp that rescales itself makes a light week look like a heavy one
+    const step = m === 0 ? 0 : m < 10 ? 1 : m < 20 ? 2 : m < 40 ? 3 : m < 60 ? 4 : 5;
+    cells.push({ k, m, step, label: new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) });
+  }
+  $("heat").innerHTML = cells.map(c =>
+    `<i class="hit" style="background:var(--seq-${c.step})" data-tip="${c.label} · ${c.m ? c.m + " min" : "nothing logged"}"></i>`).join("");
+  const active = cells.filter(c => c.m > 0).length;
+  $("heat-note").textContent = `${active} active day${active === 1 ? "" : "s"} in the last ${WEEKS} weeks`;
+  bindTips("heat");
+}
+
+function drawTrend(S) {
+  const metric = $("chart-metric").value, styleF = $("chart-style").value, modeF = $("chart-mode").value;
+  const days = +$("chart-range").value;
+  const cutoff = days ? Date.now() - days * DAY : 0;
+  const F = S.filter(s => !isDrill(s) && s.t >= cutoff &&
+    (styleF === "all" || s.style === styleF) && (modeF === "all" || s.mode === modeF));
+  const series = [];
+  if (metric === "match") {
+    const pts = F.filter(s => s.match != null).map(s => ({ t: s.t, v: s.match, lab: "Match" }));
+    if (pts.length) series.push({ color: "var(--ink-2)", pts, name: "Mirror match" });
+  } else {
+    for (const [h, color] of [["R", "var(--right)"], ["L", "var(--left)"]]) {
+      const pts = F.filter(s => s.results?.[h]?.[metric] != null).map(s => ({ t: s.t, v: s.results[h][metric], lab: handName(h) }));
+      if (pts.length) series.push({ color, pts, name: handName(h) });
+    }
+  }
+  $("legend").style.display = series.length > 1 ? "flex" : "none";
+  drawChart(series);
+}
+
+function drawChart(series) {
+  if (!series.length) {
+    $("chart").innerHTML = `<p class="subline">Nothing to plot for this filter yet.</p>`;
+    return;
+  }
+  // ponytail: viewBox width tracks the container so axis text stays readable on phones
+  const W = Math.max(320, $("chart").clientWidth || 640), H = 210, padL = 30, padR = 46, padT = 10, padB = 22;
+  const ts = series.flatMap(s => s.pts.map(p => p.t));
+  const t0 = Math.min(...ts), t1 = Math.max(...ts), span = t1 - t0 || 1;
+  const X = t => padL + (t - t0) / span * (W - padL - padR);
+  const Y = v => padT + (100 - v) / 100 * (H - padT - padB);
+  let grid = "";
+  for (const v of [0, 25, 50, 75, 100])
+    grid += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/>` +
+            `<text x="${padL - 5}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+  let marks = "", hits = [];
+  for (const s of series) {
+    // 3-session moving average carries the trend; dots are raw sessions
+    const ma = s.pts.map((p, i) => {
+      const win = s.pts.slice(Math.max(0, i - 2), i + 1);
+      return { t: p.t, v: win.reduce((a, b) => a + b.v, 0) / win.length };
+    });
+    if (ma.length > 1)
+      marks += `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${ma.map(p => `${X(p.t)},${Y(p.v)}`).join(" ")}"/>`;
+    for (const p of s.pts) {
+      marks += `<circle cx="${X(p.t)}" cy="${Y(p.v)}" r="3" fill="${s.color}" stroke="var(--surface-1)" stroke-width="2"/>` +
+               `<circle cx="${X(p.t)}" cy="${Y(p.v)}" r="12" fill="transparent" class="hit" data-tip="${fmtDate(p.t)} · ${p.lab} · ${Math.round(p.v)}"/>`;
+      hits.push(p);
+    }
+    // direct label at the line end so identity is never colour-alone
+    const last = ma[ma.length - 1];
+    if (last) marks += `<text x="${(X(last.t) + 6).toFixed(1)}" y="${(Y(last.v) + 3).toFixed(1)}" fill="var(--ink-2)">${esc(s.name)}</text>`;
+  }
+  const xlab = t1 > t0
+    ? `<text x="${padL}" y="${H - 6}">${fmtDate(t0)}</text><text x="${W - padR}" y="${H - 6}" text-anchor="end">${fmtDate(t1)}</text>`
+    : `<text x="${(padL + W - padR) / 2}" y="${H - 6}" text-anchor="middle">${fmtDate(t0)}</text>`;
+  $("chart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Score trend over time">${grid}${marks}${xlab}</svg>`;
+  bindTips("chart");
+}
+
+// shared hover/tap tooltip for every chart — hit targets are always bigger than the mark
+function bindTips(rootId) {
+  const tip = $("tooltip");
+  $(rootId).querySelectorAll(".hit").forEach(el => {
+    const show = ev => {
+      tip.textContent = el.dataset.tip;
+      tip.style.display = "block";
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      tip.style.left = Math.max(8, Math.min(x + 12, innerWidth - tip.offsetWidth - 8)) + "px";
+      tip.style.top = Math.max(8, y - 34) + "px";
+    };
+    el.onmouseenter = show; el.onmousemove = show;
+    el.onmouseleave = () => tip.style.display = "none";
+    el.ontouchstart = show;
+  });
+}
 // ---------- upload flow ----------
-let cur = {}; // {img, r, photoT, ocr}
+let cur = {}; // {img, r, photoT, ocr, drive, page, pages}
 const drop = $("drop");
 drop.onclick = () => $("file").click();
 $("file").onchange = e => {
@@ -758,9 +1882,9 @@ drop.ondrop = e => {
   const f = [...e.dataTransfer.files].find(f => f.type.startsWith("image/"));
   if (f) handleFile(f);
 };
-window.addEventListener("paste", e => {
+addEventListener("paste", e => {
   const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
-  if (it) handleFile(it.getAsFile());
+  if (it) { showTab("analyze"); handleFile(it.getAsFile()); }
 });
 function handleFile(file) {
   const img = new Image();
@@ -771,6 +1895,7 @@ function handleFile(file) {
 // one entry point for every source: local file, paste, or Drive (image or rendered PDF page)
 function useSource(src, t, meta = {}) {
   cur = { img: src, photoT: t, drive: meta.drive, page: meta.page || 1, pages: meta.pages || 1 };
+  showTab("analyze");
   runAnalysis(src);
 }
 function showErr(msg) { const e = $("err"); e.textContent = msg; e.classList.remove("hidden"); }
@@ -795,6 +1920,11 @@ const weakestOf = m => {
     if (m.scores[k] != null && (w == null || m.scores[k] < m.scores[w])) w = k;
   return w;
 };
+// the weakest metric names a drill, so the analysis ends with something to actually do
+function suggestFor(metric, hand, style) {
+  const pool = DRILLS.filter(d => d.targets.includes(metric) && drillFits(d, hand, style));
+  return pool[0] || null;
+}
 
 function runAnalysis(img, keepOcr) {
   $("err").classList.add("hidden");
@@ -824,27 +1954,33 @@ function runAnalysis(img, keepOcr) {
   ctx.globalAlpha = 1;
 
   const tips = [];
+  let weak = null, weakHand = prefs.hand;
   if (r.mirror) {
-    const dh = prefs.hand === "R" ? "Right" : "Left", nh = prefs.hand === "R" ? "Left" : "Right";
+    const dh = handName(prefs.hand), nh = handName(other(prefs.hand));
     $("slantline").textContent = `${r.stats.length} lines detected · pairs scored as ${dh} (dominant) / ${nh} (copy)`;
-    const wk = weakestOf(r.mirror.non);
+    weak = weakestOf(r.mirror.non);
+    weakHand = other(prefs.hand);
     $("scorebox").innerHTML =
       `<div class="tiles"><div class="tile"><div class="v">${r.mirror.match}%</div><div class="l">Mirror match</div><div class="d">how closely the copy mimics the original</div></div></div>` +
       `<h3>Dominant (${dh})</h3>` + tilesHtml(r.mirror.dom, null) +
-      `<h3>Copy (${nh})</h3>` + tilesHtml(r.mirror.non, wk);
-    if (wk) tips.push(METRIC_TIP[wk]);
+      `<h3>Copy (${nh})</h3>` + tilesHtml(r.mirror.non, weak);
+    if (weak) tips.push(METRIC_TIP[weak]);
     tips.push(MIRROR_TIP, ...HAND_TIP[other(prefs.hand)]);
   } else {
     const m = r.metrics;
     const dir = m.meanSlant > 3 ? "forward" : m.meanSlant < -3 ? "backward" : "upright";
     $("slantline").textContent =
       `Average slant: ${Math.abs(m.meanSlant).toFixed(0)}° ${dir} · ${r.stats.length} line${r.stats.length > 1 ? "s" : ""} detected (baselines drawn)`;
-    const wk = weakestOf(m);
-    $("scorebox").innerHTML = tilesHtml(m, wk);
-    if (wk) tips.push(METRIC_TIP[wk]);
+    weak = weakestOf(m);
+    $("scorebox").innerHTML = tilesHtml(m, weak);
+    if (weak) tips.push(METRIC_TIP[weak]);
     tips.push(STYLE_TIP[prefs.style], ...HAND_TIP[prefs.hand]);
   }
   $("tips").innerHTML = tips.map(t => `<li>${t}</li>`).join("");
+  const sug = weak && suggestFor(weak, weakHand, prefs.style);
+  if (sug) $("tips").insertAdjacentHTML("beforeend",
+    `<li>Drill for this: <button class="act" data-drill="${sug.id}">${sug.ic} ${esc(sug.title)} · ${sug.min} min</button></li>`);
+  bindDrillButtons("tips");
 
   const sl = $("srcline");
   sl.classList.toggle("hidden", !cur.drive);
@@ -876,11 +2012,7 @@ $("ocr-btn").onclick = async () => {
   $("ocr-btn").disabled = true;
   try {
     const data = await ocrPage(cur.img || cur.r.canvas); // full-res source reads better than the analyzer's downscale
-    cur.ocr = {
-      date: parseOcrDate(data.text),
-      dur: parseDuration(data.text),
-      conf: Math.round(data.confidence),
-    };
+    cur.ocr = { date: parseOcrDate(data.text), dur: parseDuration(data.text), conf: Math.round(data.confidence) };
     if (cur.ocr.dur && !$("dur").value) $("dur").value = cur.ocr.dur;
     if (cur.ocr.date) {
       $("ocr-radio").disabled = false;
@@ -889,9 +2021,7 @@ $("ocr-btn").onclick = async () => {
     st.textContent = `Legibility ${cur.ocr.conf}/100` +
       (cur.ocr.date ? ` · date found` : "") + (cur.ocr.dur ? ` · ${cur.ocr.dur} min found` : "");
   } catch (e) {
-    st.textContent = location.hostname.includes("claude")
-      ? "OCR isn't available in this embedded preview — use the installed app."
-      : "OCR failed — it needs internet the first time it runs.";
+    st.textContent = "OCR failed — it needs internet the first time it runs.";
   }
   $("ocr-btn").disabled = false;
 };
@@ -918,7 +2048,7 @@ $("save-btn").onclick = () => {
     match = cur.r.mirror.match;
   } else results[prefs.hand] = withLeg(cur.r.metrics.scores);
   const s = loadSessions();
-  s.push({ id: newId(), t, style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
+  s.push({ id: newId(), t, kind: "page", style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
   saveSessions(s);
   if (cur.drive) { // remember which scans are already logged, per page
     DRIVE.imported = [...new Set([...DRIVE.imported, cur.drive.id + "#" + cur.page])].slice(-500);
@@ -927,143 +2057,61 @@ $("save-btn").onclick = () => {
   }
   $("save-btn").disabled = true;
   $("save-btn").textContent = "Saved ✓";
-  renderStats();
+  renderAll();
   if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {}); // push in the background
 };
 
+// ---------- data in / out ----------
 $("export").onclick = () => {
-  const json = JSON.stringify(loadSessions());
-  if (window.claude?.downloads) { // hosted artifact: sandbox blocks direct downloads
-    window.claude.downloads.save({ filename: "handwriting-data.json", data: json }).catch(() => {});
-    return;
-  }
+  const json = JSON.stringify({ v: 2, savedAt: Date.now(), sessions: loadSessions(), deleted: loadTombs() }, null, 1);
   const a = document.createElement("a");
   a.href = "data:application/json," + encodeURIComponent(json);
   a.download = "handwriting-data.json";
   a.click();
+  $("data-status").textContent = `Exported ${loadSessions().length} sessions.`;
+};
+$("import-btn").onclick = () => $("import-file").click();
+$("import-file").onchange = e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const j = JSON.parse(rd.result);
+      // accepts either the current bundle or a bare array from an older export
+      const incoming = Array.isArray(j) ? j : j.sessions;
+      if (!Array.isArray(incoming)) throw new Error("no sessions in that file");
+      for (const s of incoming) if (!s.id) s.id = newId();
+      const before = loadSessions().length;
+      const merged = mergeSessions(loadSessions(), incoming, loadTombs());
+      saveSessions(merged);
+      $("data-status").textContent = `Imported — ${merged.length - before} new, ${merged.length} total.`;
+      renderAll();
+      if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+    } catch (err) { $("data-status").textContent = "Couldn't read that file: " + err.message; }
+  };
+  rd.readAsText(f);
+};
+// plain-text digest, handy to paste into a journal or hand to a coach
+function progressSummary(S = loadSessions(), st = deriveStats(S)) {
+  const weakR = weakestMetrics(S, "R", 2), weakL = weakestMetrics(S, "L", 2);
+  const line = (h, w) => `${handName(h)}: avg ${metricAvg(S, h, "overall") ?? "–"}` +
+    (w.length ? ` · weakest ${w.map(k => METRIC_LABEL[k].toLowerCase()).join(", ")}` : "");
+  return [
+    `# Handwriting progress — ${dayKey(Date.now())}`,
+    `Sessions: ${st.pages} pages, ${st.drills} drills · ${fmtMin(st.minutes)} total`,
+    `Streak: ${st.streak} days (best ${st.bestStreak}) · ${st.weekMin}/${prefs.goalMin} min this week`,
+    line("R", weakR), line("L", weakL),
+    `Best overall: ${st.best < 0 ? "–" : st.best}`,
+  ].join("\n");
+}
+$("copy-summary").onclick = async () => {
+  const text = progressSummary();
+  try { await navigator.clipboard.writeText(text); $("data-status").textContent = "Progress summary copied."; }
+  catch (e) { $("data-status").textContent = text; }
 };
 
-// ---------- analytics ----------
-const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
-
-function renderStats() {
-  const S = loadSessions();
-  $("empty").classList.toggle("hidden", S.length > 0);
-  $("histtable").classList.toggle("hidden", S.length === 0);
-
-  // stat tiles: volume, streak, PRs, recent delta
-  const mins = S.reduce((a, s) => a + (s.durationMin || 0), 0);
-  const days = new Set(S.map(s => new Date(s.t).toDateString()));
-  let streak = 0;
-  { const d = new Date();
-    if (!days.has(d.toDateString())) d.setDate(d.getDate() - 1);
-    while (days.has(d.toDateString())) { streak++; d.setDate(d.getDate() - 1); } }
-  const best = h => S.reduce((a, s) => Math.max(a, s.results[h]?.overall ?? -1), -1);
-  const delta = h => {
-    const now = Date.now(), d14 = 14 * 864e5;
-    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-    const rec = avg(S.filter(s => s.t > now - d14).map(s => s.results[h]?.overall).filter(v => v != null));
-    const old = avg(S.filter(s => s.t <= now - d14 && s.t > now - 2 * d14).map(s => s.results[h]?.overall).filter(v => v != null));
-    return rec != null && old != null ? Math.round(rec - old) : null;
-  };
-  const dR = delta("R"), dL = delta("L");
-  const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
-  $("stat-tiles").innerHTML = [
-    [S.length, "Sessions", ""],
-    [mins ? fmtMin(mins) : "–", "Total time", "logged minutes"],
-    [streak, "Day streak", ""],
-    [best("R") < 0 ? "–" : best("R"), "Best right", "overall score"],
-    [best("L") < 0 ? "–" : best("L"), "Best left", "overall score"],
-    [`${sign(dR)} · ${sign(dL)}`, "14-day change", "right · left"],
-  ].map(([v, l, d]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join("");
-
-  // chart
-  const metric = $("chart-metric").value;
-  const styleF = $("chart-style").value, modeF = $("chart-mode").value;
-  const F = S.filter(s => (styleF === "all" || s.style === styleF) && (modeF === "all" || s.mode === modeF));
-  const series = [];
-  if (metric === "match") {
-    const pts = F.filter(s => s.match != null).map(s => ({ t: s.t, v: s.match, lab: "Match" }));
-    if (pts.length) series.push({ color: "var(--ink-muted)", pts });
-  } else {
-    for (const [h, color] of [["R", "var(--right)"], ["L", "var(--left)"]]) {
-      const pts = F.filter(s => s.results[h]?.[metric === "overall" ? "overall" : metric] != null || s.results[h]?.[metric] != null)
-        .map(s => ({ t: s.t, v: s.results[h][metric] ?? s.results[h].overall, lab: h === "R" ? "Right" : "Left" }));
-      if (pts.length) series.push({ color, pts });
-    }
-  }
-  $("legend").style.display = metric === "match" ? "none" : "flex";
-  drawChart(series);
-
-  // table, latest first
-  $("histtable").querySelector("tbody").innerHTML = [...S].reverse().map((s, ri) => {
-    const i = S.length - 1 - ri;
-    const hands = Object.keys(s.results).sort().reverse().map(h =>
-      `<span style="color:${h === "R" ? "var(--right)" : "var(--left)"}">${h} ${s.results[h].overall ?? "–"}</span>`).join(" · ");
-    return `<tr><td>${new Date(s.t).toLocaleDateString()}</td><td>${Object.keys(s.results).sort().reverse().join("+")}</td>
-      <td>${s.style}</td><td>${s.mode === "mirror" ? "mirror" + (s.match != null ? ` ${s.match}%` : "") : "single"}</td>
-      <td>${s.durationMin ?? "–"}</td><td>${hands}</td>
-      <td><button data-i="${i}" title="Delete session">✕</button></td></tr>`;
-  }).join("");
-  $("histtable").querySelectorAll("td button").forEach(b => b.onclick = () => {
-    // ponytail: two-tap confirm — confirm() is silently blocked in sandboxed iframes
-    if (b.textContent !== "Sure?") { b.textContent = "Sure?"; return; }
-    const all = loadSessions();
-    const [gone] = all.splice(+b.dataset.i, 1);
-    saveSessions(all);
-    if (gone?.id) { // tombstone so the delete survives the next sync instead of coming back
-      localStorage.setItem(TOMB_KEY, JSON.stringify(mergeTombs(loadTombs(), [{ id: gone.id, at: Date.now() }])));
-      if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
-    }
-    renderStats();
-  });
-}
-
-function drawChart(series) {
-  if (!series.length) { $("chart").innerHTML = ""; return; }
-  // ponytail: viewBox width tracks the container so axis text stays readable on phones
-  const W = Math.max(320, $("chart").clientWidth || 640), H = 200, padL = 30, padR = 14, padT = 10, padB = 22;
-  const ts = series.flatMap(s => s.pts.map(p => p.t));
-  const t0 = Math.min(...ts), t1 = Math.max(...ts), span = t1 - t0 || 1;
-  const X = t => padL + (t - t0) / span * (W - padL - padR);
-  const Y = v => padT + (100 - v) / 100 * (H - padT - padB);
-  let grid = "";
-  for (const v of [0, 25, 50, 75, 100])
-    grid += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/>` +
-            `<text x="${padL - 5}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
-  let marks = "", hits = [];
-  for (const s of series) {
-    // 3-session moving average carries the trend; dots are raw sessions
-    const ma = s.pts.map((p, i) => {
-      const win = s.pts.slice(Math.max(0, i - 2), i + 1);
-      return { t: p.t, v: win.reduce((a, b) => a + b.v, 0) / win.length };
-    });
-    if (ma.length > 1)
-      marks += `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${ma.map(p => `${X(p.t)},${Y(p.v)}`).join(" ")}"/>`;
-    for (const p of s.pts) {
-      marks += `<circle cx="${X(p.t)}" cy="${Y(p.v)}" r="3" fill="${s.color}"/>` +
-               `<circle cx="${X(p.t)}" cy="${Y(p.v)}" r="10" fill="transparent" class="hit" data-h="${hits.length}"/>`;
-      hits.push(p);
-    }
-  }
-  const xlab = t1 > t0
-    ? `<text x="${padL}" y="${H - 6}">${fmtDate(t0)}</text><text x="${W - padR}" y="${H - 6}" text-anchor="end">${fmtDate(t1)}</text>`
-    : `<text x="${(padL + W - padR) / 2}" y="${H - 6}" text-anchor="middle">${fmtDate(t0)}</text>`;
-  $("chart").innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Score trend over time">${grid}${marks}${xlab}</svg>`;
-  const tip = $("tooltip");
-  $("chart").querySelectorAll(".hit").forEach(el => {
-    el.onmouseenter = ev => {
-      const p = hits[+el.dataset.h];
-      tip.textContent = `${fmtDate(p.t)} · ${p.lab} · ${Math.round(p.v)}`;
-      tip.style.display = "block";
-      tip.style.left = Math.min(ev.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px";
-      tip.style.top = ev.clientY - 10 + "px";
-    };
-    el.onmouseleave = () => tip.style.display = "none";
-  });
-}
 // ---------- Drive controls ----------
 $("drive-folder").value = DRIVE.folder;
 $("drive-client").value = DRIVE.clientId;
@@ -1096,9 +2144,6 @@ $("drive-save").onclick = () => {
   driveTok = null;
   $("drive-status").textContent = DRIVE.clientId ? "Client ID saved." : "Using this site's built-in client ID.";
 };
-syncUi();
-// reconnect quietly on boot if this device was linked before — never pops a sign-in
-if (DRIVE.linked) driveSync({ silent: true }).then(() => syncUi(), () => syncUi("Sign in again to resume syncing."));
 $("drive-scan").onclick = async () => {
   const id = folderId($("drive-folder").value);
   if (!id) { $("drive-status").textContent = "Paste the folder's link from Drive first."; return; }
@@ -1119,11 +2164,26 @@ $("drive-scan").onclick = async () => {
   } catch (e) { $("drive-status").textContent = e.message; }
 };
 
-for (const id of ["chart-metric", "chart-style", "chart-mode"]) $(id).onchange = renderStats;
-addEventListener("resize", renderStats); // rotation / window resize re-fits the chart
+// ---------- boot ----------
+function renderAll() {
+  const S = loadSessions();
+  const st = deriveStats(S);
+  renderToday(S, st);
+  renderPractice(S);
+  renderProgress(S, st);
+}
+function renderStats() { renderAll(); } // core.js (Drive sync) calls this after a merge
+
+for (const id of ["chart-metric", "chart-style", "chart-mode", "chart-range"]) $(id).onchange = () => drawTrend(loadSessions());
+let resizeT = null;
+addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(renderAll, 150); });
 // ponytail: taps fire emulated mouseenter but never mouseleave — clear stuck tooltips on touch
 addEventListener("touchstart", e => { if (!e.target.closest(".hit")) $("tooltip").style.display = "none"; }, { passive: true });
-renderStats();
+
+syncUi();
+// reconnect quietly on boot if this device was linked before — never pops a sign-in
+if (DRIVE.linked) driveSync({ silent: true }).then(() => syncUi(), () => syncUi("Sign in again to resume syncing."));
+showTab(location.search.includes("selftest") ? "progress" : prefs.tab);
 
 // ---------- self-test (open index.html?selftest) ----------
 function synth(slantDeg, lines) {
@@ -1140,6 +2200,8 @@ if (location.search.includes("selftest")) {
   const out = [];
   const check = (name, cond) => { out.push((cond ? "ok  " : "FAIL") + " " + name); return cond; };
   let pass = true;
+
+  // --- image analysis ---
   const up = analyze(synth(0, 4), { mode: "single", style: "print" });
   pass = check("upright: no error", !up.error) && pass;
   pass = check("upright: 3-5 rows, got " + up.stats?.length, up.stats && up.stats.length >= 3 && up.stats.length <= 5) && pass;
@@ -1149,13 +2211,13 @@ if (location.search.includes("selftest")) {
   pass = check("slanted: forward slant >=6, got " + fw.metrics?.meanSlant.toFixed(1), fw.metrics?.meanSlant >= 6) && pass;
   const cw = analyze(synth(0, 4), { mode: "single", style: "cursive" });
   pass = check("cursive: spacing computed or null", cw.metrics.scores.spacing == null || cw.metrics.scores.spacing >= 0) && pass;
-  const blank = analyze(synth(0, 0), { mode: "single", style: "print" });
-  pass = check("blank image: error returned", !!blank.error) && pass;
+  pass = check("blank image: error returned", !!analyze(synth(0, 0), { mode: "single", style: "print" }).error) && pass;
   const mir = analyze(synth(0, 4), { mode: "mirror", style: "print" });
   pass = check("mirror: both hands scored", mir.mirror?.dom.scores.overall != null && mir.mirror?.non.scores.overall != null) && pass;
   pass = check("mirror: identical lines match>=70, got " + mir.mirror?.match, mir.mirror?.match >= 70) && pass;
-  const one = analyze(synth(0, 1), { mode: "mirror", style: "print" });
-  pass = check("mirror: single line errors", !!one.error) && pass;
+  pass = check("mirror: single line errors", !!analyze(synth(0, 1), { mode: "mirror", style: "print" }).error) && pass;
+
+  // --- OCR parsing ---
   pass = check("date ISO", new Date(parseOcrDate("done 2026-07-12 today")).getDate() === 12) && pass;
   pass = check("date month name", new Date(parseOcrDate("July 12, 2026 practice")).getMonth() === 6) && pass;
   pass = check("date day-first dots", new Date(parseOcrDate("12.7.2026")).getMonth() === 6) && pass;
@@ -1164,13 +2226,14 @@ if (location.search.includes("selftest")) {
   pass = check("duration min", parseDuration("took 15 min") === 15) && pass;
   pass = check("duration h+m", parseDuration("1 h 5 m") === 65) && pass;
   pass = check("duration none", parseDuration("2026-07-12 practice") == null) && pass;
-  drawChart([{ color: "red", pts: [{ t: 1, v: 50, lab: "R" }, { t: 2, v: 60, lab: "R" }] }]);
-  pass = check("chart: svg rendered at container width", $("chart").querySelector("svg") != null) && pass;
-  const FID = "1AbC2dEfGhIjKlMnOpQrStUvWxYz34567";
+
+  // --- Drive + sync merge ---
+  const FID = "1AbC2dEfGhIjKlMnOpQrStUvWxYz34567"; // dummy, not a real folder
   pass = check("drive: id from folder link", folderId("https://drive.google.com/drive/folders/" + FID + "?usp=sharing") === FID) && pass;
   pass = check("drive: id from bare id", folderId(FID) === FID) && pass;
   pass = check("drive: junk gives empty", folderId("my scans folder") === "") && pass;
-  pass = check("escape: html in file names", esc('a<b>&"') === "a&lt;b&gt;&amp;&quot;") && pass;
+  pass = check("drive: origin gate rejects other hosts", OAUTH_ORIGINS.length === 1 && OAUTH_ORIGINS[0] === "https://adervec.github.io") && pass;
+  pass = check("escape: html in names", esc('a<b>&"') === "a&lt;b&gt;&amp;&quot;") && pass;
   const S = (id, t, tag) => ({ id, t, tag });
   const m1 = mergeSessions([S("a", 1), S("b", 2)], [S("c", 3)], []);
   pass = check("sync: union of both sides, got " + m1.length, m1.length === 3) && pass;
@@ -1179,13 +2242,126 @@ if (location.search.includes("selftest")) {
   pass = check("sync: same id kept once, local wins", m2.length === 1 && m2[0].tag === "mine") && pass;
   const m3 = mergeSessions([S("a", 1)], [S("b", 2)], [{ id: "b", at: 9 }]);
   pass = check("sync: tombstone beats a remote copy", m3.length === 1 && m3[0].id === "a") && pass;
-  const m4 = mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]);
-  pass = check("sync: deleted session stays deleted", m4.length === 0) && pass;
-  const tm = mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]);
-  pass = check("sync: tombstones dedupe, got " + tm.length, tm.length === 2) && pass;
-  pass = check("drive: origin gate rejects other hosts", OAUTH_ORIGINS.length === 1 && OAUTH_ORIGINS[0] === "https://adervec.github.io") && pass;
+  pass = check("sync: deleted session stays deleted", mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]).length === 0) && pass;
+  pass = check("sync: tombstones dedupe", mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]).length === 2) && pass;
+
+  // --- drill catalog ---
+  pass = check("drills: catalog non-trivial, got " + DRILLS.length, DRILLS.length >= 25) && pass;
+  pass = check("drills: ids unique", new Set(DRILLS.map(d => d.id)).size === DRILLS.length) && pass;
+  pass = check("drills: every field present", DRILLS.every(d => d.title && d.cat && d.how && d.min > 0 && d.targets.length)) && pass;
+  pass = check("drills: targets are known metrics",
+    DRILLS.every(d => d.targets.every(t => METRIC_LABEL[t]))) && pass;
+  pass = check("drills: every metric has a drill",
+    Object.keys(METRIC_LABEL).every(k => DRILLS.some(d => d.targets.includes(k)))) && pass;
+  pass = check("drills: left-hand-only ones exist", DRILLS.some(d => d.hands === "L")) && pass;
+  pass = check("drills: fit filter respects hand", !drillFits({ hands: "L", styles: "both" }, "R", "print")) && pass;
+  pass = check("drills: fit filter respects style", !drillFits({ hands: "both", styles: "cursive" }, "R", "print")) && pass;
+  pass = check("drills: 'both' fits everything", drillFits({ hands: "both", styles: "both" }, "L", "cursive")) && pass;
+
+  // --- guide sheets ---
+  const rs = sheetSvg({ kind: "ruled" }, { lines: 10, xh: 8 });
+  pass = check("sheet: renders svg", rs.startsWith("<svg") && rs.endsWith("</svg>")) && pass;
+  pass = check("sheet: 10 lines => 40 rules, got " + (rs.match(/<line/g) || []).length, (rs.match(/<line/g) || []).length === 40) && pass;
+  pass = check("sheet: mm viewBox is A4-ish width", /viewBox="0 0 190 /.test(rs)) && pass;
+  const ss = sheetSvg({ kind: "slant" }, { lines: 3, xh: 8, slant: 15 });
+  pass = check("sheet: slant adds guides", (ss.match(/<line/g) || []).length > (sheetSvg({ kind: "ruled" }, { lines: 3, xh: 8 }).match(/<line/g) || []).length) && pass;
+  pass = check("sheet: grid renders", sheetSvg({ kind: "grid" }, { lines: 8, xh: 8 }).includes("<line")) && pass;
+  pass = check("sheet: boxes render rects", sheetSvg({ kind: "boxes" }, { lines: 6, xh: 8 }).includes("<rect")) && pass;
+  pass = check("sheet: mirror tints alternate rows", (sheetSvg({ kind: "mirror" }, { lines: 4, xh: 8 }).match(/dominant/g) || []).length === 2) && pass;
+  pass = check("sheet: trace text is escaped",
+    sheetSvg({ kind: "ruled", text: "a<b>" }, { lines: 2, xh: 8 }).includes("a&lt;b&gt;")) && pass;
+  pass = check("sheet: line count clamped to 40", (sheetSvg({ kind: "ruled" }, { lines: 999, xh: 8 }).match(/<line/g) || []).length <= 160) && pass;
+  pass = check("sheet: every drill's sheet renders",
+    DRILLS.filter(d => d.sheet).every(d => sheetSvg(d.sheet, { xh: 8, slant: 5 }).startsWith("<svg"))) && pass;
+  // regression: a blanket `svg text` CSS rule used to override the sheet's own attributes,
+  // rendering the mirror labels at 11 user units (~4x too big) in the chart's ink colour
+  $("sheet-paper").innerHTML = sheetSvg({ kind: "mirror" }, { lines: 4, xh: 8 });
+  const lbl = $("sheet-paper").querySelector("text");
+  const lblSize = parseFloat(getComputedStyle(lbl).fontSize);
+  pass = check("sheet: label keeps its own font-size, got " + lblSize, lblSize > 0 && lblSize < 5) && pass;
+  pass = check("sheet: label keeps its own fill", getComputedStyle(lbl).fill.replace(/\s/g, "") === "rgb(194,201,209)") && pass;
+  $("sheet-paper").innerHTML = "";
+
+  // --- weakness detection + plan ---
+  const mk = (t, R) => ({ id: "s" + t, t, kind: "page", style: "print", mode: "single", durationMin: 10, results: { R } });
+  const hist = [
+    mk(1, { overall: 60, slantC: 90, baseline: 30, size: 80, spacing: 55 }),
+    mk(2, { overall: 62, slantC: 92, baseline: 34, size: 82, spacing: 50 }),
+  ];
+  const weak = weakestMetrics(hist, "R");
+  pass = check("weakest: baseline first, got " + weak.join(","), weak[0] === "baseline") && pass;
+  pass = check("weakest: spacing second, got " + weak[1], weak[1] === "spacing") && pass;
+  pass = check("weakest: unknown hand gives none", weakestMetrics(hist, "L").length === 0) && pass;
+  const plan = buildPlan(hist, { hand: "R", style: "print", mode: "single" }, weak);
+  pass = check("plan: 4+ drills, got " + plan.length, plan.length >= 4) && pass;
+  pass = check("plan: no duplicates", new Set(plan.map(d => d.id)).size === plan.length) && pass;
+  pass = check("plan: starts with a warm-up", plan[0].cat === "Warm-up") && pass;
+  pass = check("plan: exactly one warm-up, got " + plan.filter(d => d.cat === "Warm-up").length,
+    plan.filter(d => d.cat === "Warm-up").length === 1) && pass;
+  pass = check("plan: targets the weakest metric", plan.some(d => d.targets.includes("baseline"))) && pass;
+  pass = check("plan: only drills that fit the hand+style",
+    plan.every(d => drillFits(d, "R", "print"))) && pass;
+  const planL = buildPlan(hist, { hand: "L", style: "cursive", mode: "mirror" }, weak);
+  pass = check("plan: left hand gets a left-specific drill", planL.some(d => d.hands === "L")) && pass;
+  pass = check("plan: mirror mode adds a mirror drill", planL.some(d => d.cat === "Mirror prime")) && pass;
+  pass = check("plan: cursive plan has no print-only drills", planL.every(d => d.styles !== "print")) && pass;
+  const reroll = buildPlan(hist, { hand: "R", style: "print", mode: "single" }, weak, pool => pool[1 % pool.length]);
+  pass = check("plan: reshuffle changes the routine", reroll.map(d => d.id).join() !== plan.map(d => d.id).join()) && pass;
+  pass = check("plan: empty history still returns a routine",
+    buildPlan([], { hand: "R", style: "print", mode: "single" }, []).length >= 3) && pass;
+
+  // --- derived stats ---
+  const t0 = new Date(); t0.setHours(12, 0, 0, 0);
+  const dayAgo = n => t0.getTime() - n * DAY;
+  const stS = [
+    { id: "a", t: dayAgo(2), kind: "page", style: "cursive", mode: "mirror", durationMin: 20, results: { R: { overall: 70 }, L: { overall: 40 } } },
+    { id: "b", t: dayAgo(1), kind: "drill", drillId: "warm-loops", hand: "L", durationMin: 15 },
+    { id: "c", t: dayAgo(0), kind: "page", style: "print", mode: "single", durationMin: 25, results: { R: { overall: 88 } } },
+  ];
+  const st = deriveStats(stS);
+  pass = check("stats: pages counted, got " + st.pages, st.pages === 2) && pass;
+  pass = check("stats: drills counted, got " + st.drills, st.drills === 1) && pass;
+  pass = check("stats: minutes summed, got " + st.minutes, st.minutes === 60) && pass;
+  pass = check("stats: streak spans 3 days, got " + st.streak, st.streak === 3) && pass;
+  pass = check("stats: best overall, got " + st.best, st.best === 88) && pass;
+  pass = check("stats: left pages counted, got " + st.leftPages, st.leftPages === 1) && pass;
+  pass = check("stats: mirror + cursive counted", st.mirrors === 1 && st.cursive === 1) && pass;
+  const gap = deriveStats([{ id: "x", t: dayAgo(9), durationMin: 5 }, { id: "y", t: dayAgo(8), durationMin: 5 }, { id: "z", t: dayAgo(0), durationMin: 5 }]);
+  pass = check("stats: broken streak resets, got " + gap.streak, gap.streak === 1) && pass;
+  pass = check("stats: best streak remembers the old run, got " + gap.bestStreak, gap.bestStreak === 2) && pass;
+  pass = check("stats: empty history is safe", deriveStats([]).streak === 0 && deriveStats([]).best === -1) && pass;
+  pass = check("stats: metric average over pages, got " + metricAvg(stS, "R", "overall"), metricAvg(stS, "R", "overall") === 79) && pass;
+  pass = check("stats: drills never enter score averages", metricAvg(stS, "L", "overall") === 40) && pass;
+
+  // --- badges ---
+  pass = check("badges: ids unique", new Set(BADGES.map(b => b.id)).size === BADGES.length) && pass;
+  pass = check("badges: none unlocked on an empty history", BADGES.every(b => !b.test(deriveStats([])))) && pass;
+  pass = check("badges: first page unlocks", BADGES.find(b => b.id === "first").test(st)) && pass;
+  pass = check("badges: 30-day streak stays locked", !BADGES.find(b => b.id === "streak30").test(st)) && pass;
+
+  // --- summary + charts render ---
+  pass = check("summary: has a header and a streak line",
+    progressSummary(stS, st).startsWith("# Handwriting progress") && progressSummary(stS, st).includes("Streak:")) && pass;
+  drawChart([{ color: "red", name: "Right", pts: [{ t: 1, v: 50, lab: "R" }, { t: 2, v: 60, lab: "R" }] }]);
+  pass = check("chart: svg rendered at container width", $("chart").querySelector("svg") != null) && pass;
+  pass = check("chart: empty series says so", (drawChart([]), $("chart").textContent.includes("Nothing to plot"))) && pass;
+  drawProfile(hist); // hist carries real per-metric scores; stS only has `overall`
+  pass = check("profile: bars rendered", $("profile-chart").querySelectorAll("rect").length > 0) && pass;
+  pass = check("profile: one bar per scored metric, got " + $("profile-chart").querySelectorAll("rect:not(.hit)").length,
+    $("profile-chart").querySelectorAll("rect:not(.hit)").length === 4) && pass;
+  pass = check("profile: every bar has a bigger hit target",
+    $("profile-chart").querySelectorAll("rect.hit").length === $("profile-chart").querySelectorAll("rect:not(.hit)").length) && pass;
+  pass = check("profile: no metric data renders nothing", (drawProfile([]), $("profile-chart").innerHTML === "")) && pass;
+  drawHeat(stS);
+  pass = check("heat: 18 weeks of cells, got " + $("heat").children.length, $("heat").children.length >= 120) && pass;
+  pass = check("heat: active days are shaded", [...$("heat").children].some(c => c.style.background.includes("seq-") && !c.style.background.includes("seq-0"))) && pass;
+  pass = check("spark: renders with 2+ points", sparkline(stS, "R").includes("<svg") === false || sparkline(stS, "R").includes("polyline")) && pass;
+  pass = check("spark: single point renders nothing", sparkline([stS[0]], "R") === "") && pass;
+
   document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
-  $("selftest").textContent = document.title + "\n" + out.join("\n");
+  $("selftest").textContent = document.title + ` (${out.length} checks)\n` + out.join("\n");
+  showTab("setup");
+
   if (location.search.includes("ocr")) { // ?selftest=ocr — hits the network, so opt-in
     document.title = "SELFTEST RUNNING";
     (async () => {
@@ -1203,7 +2379,7 @@ if (location.search.includes("selftest")) {
         check("ocr: confidence >0, got " + Math.round(data.confidence), data.confidence > 0);
       } catch (e) { check("ocr: failed — " + e.message, false); }
       document.title = out.every(l => l.startsWith("ok")) ? "SELFTEST PASS" : "SELFTEST FAIL";
-      $("selftest").textContent = document.title + "\n" + out.join("\n");
+      $("selftest").textContent = document.title + ` (${out.length} checks)\n` + out.join("\n");
     })();
   }
 }

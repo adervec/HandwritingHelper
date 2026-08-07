@@ -1,7 +1,7 @@
 {
   "name": "Handwriting Helper",
   "short_name": "Handwriting",
-  "description": "Analyze photos of your handwriting — right or left hand, print or cursive — and track scores, streaks, and trends over time.",
+  "description": "Train your handwriting: analyze photos of your pages, run targeted drills on printable guide sheets, and track scores, streaks and trends for both hands.",
   "start_url": ".",
   "scope": ".",
   "id": "/HandwritingHelper/",
