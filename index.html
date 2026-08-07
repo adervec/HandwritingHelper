@@ -452,6 +452,7 @@
         <div class="seg"><button id="style-print">Printing</button><button id="style-cursive">Cursive</button></div></div>
       <div class="opt"><span class="flab">Mode</span>
         <div class="seg"><button id="mode-single">Single hand</button><button id="mode-mirror">Mirror prime</button></div></div>
+      <div class="opt"><span class="flab">Alphabet</span><select id="script-sel"></select></div>
     </div>
     <p class="subline" id="mode-hint"></p>
   </div>
@@ -784,6 +785,60 @@ const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(
 const DAY = 864e5;
 const dayKey = t => { const d = new Date(t); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
+// ---------- scripts / alphabets ----------
+// The analyzer's geometry is a set of Latin assumptions: letters SIT on a line, stems are
+// broadly vertical, gaps separate letters. Only some of that survives a change of script,
+// so each one declares what actually applies to it.
+//   line       what the writing is organised around. "bottom" letters sit on it ·
+//              "top" letters hang from it (Devanagari's शिरोरेखा) · "center" characters are
+//              boxed and only have to march level (CJK, Hangul).
+//   slant      is a consistent stroke angle a quality signal here at all?
+//   wordGaps   the informative gaps are the LARGER ones — true of joined scripts (Arabic,
+//              Devanagari, Latin cursive) and of cell-set ones (CJK, Hangul), where the
+//              small gaps sit inside a single character.
+//   ocr        Tesseract language code. sheet: which guide sheet suits it.
+//   font       a stack that actually HAS the glyphs, for the traced line on a guide sheet.
+//   sample     script-appropriate practice text for the drills that need words.
+const SCRIPTS = {
+  latin: {
+    label: "Latin", font: "Georgia, 'Times New Roman', serif", ocr: "eng", dir: "ltr", line: "bottom", slant: true, wordGaps: false, sheet: "ruled",
+    sample: { alphabet: "abcdefghijklm nopqrstuvwxyz", round: "a o e c s  a o e c s", chain: "mmmm nnnn oooo eeee",
+      minimum: "minimum minimum minimum", sentence: "The quick brown fox jumps over the lazy dog" } },
+  cyrillic: {
+    label: "Cyrillic", font: "Georgia, 'Times New Roman', serif", ocr: "rus", dir: "ltr", line: "bottom", slant: true, wordGaps: false, sheet: "ruled",
+    sample: { alphabet: "абвгдежзийклмноп рстуфхцчшщъыьэюя", round: "о с е а ю", chain: "шшшш ииии оооо",
+      minimum: "шишиши шишиши", sentence: "Съешь же ещё этих мягких французских булок" } },
+  greek: {
+    label: "Greek", font: "Georgia, 'Times New Roman', serif", ocr: "ell", dir: "ltr", line: "bottom", slant: true, wordGaps: false, sheet: "ruled",
+    sample: { alphabet: "αβγδεζηθικλμ νξοπρστυφχψω", round: "ο ε α σ θ", chain: "μμμμ νννν οοοο",
+      minimum: "μιμιμι μιμιμι", sentence: "Ξεσκεπάζω την ψυχοφθόρα βδελυγμία" } },
+  hebrew: {
+    label: "Hebrew", font: "'Times New Roman', 'Arial Hebrew', 'Segoe UI', serif", ocr: "heb", dir: "rtl", line: "bottom", slant: true, wordGaps: false, sheet: "ruled", trim: 3,
+    sample: { alphabet: "אבגדהוזחטיכלמנסעפצקרשת", round: "ס ם ט ע", chain: "וווו נננן סססס",
+      minimum: "מממ מממ", sentence: "דג סקרן שט בים מאוכזב ולפתע מצא חברה" } },
+  arabic: {
+    label: "Arabic", font: "'Traditional Arabic', 'Segoe UI', 'Arial', serif", ocr: "ara", dir: "rtl", line: "bottom", slant: false, wordGaps: true, sheet: "ruled",
+    sample: { alphabet: "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض", round: "ه و ة ق",
+      chain: "ببب سسس ننن", minimum: "ببب ببب", sentence: "نص حكيم له سر قاطع وذو شأن عظيم" } },
+  devanagari: {
+    label: "Devanagari", font: "'Nirmala UI', 'Mangal', 'Noto Serif Devanagari', serif", ocr: "hin", dir: "ltr", line: "top", slant: true, wordGaps: true, sheet: "headline",
+    sample: { alphabet: "क ख ग घ च छ ज झ ट ठ ड ढ त थ द", round: "म भ फ ठ",
+      chain: "ममम नननन ललल", minimum: "ममम ममम", sentence: "हिंदी लिखावट का नमूना यहाँ" } },
+  thai: {
+    label: "Thai", font: "'Leelawadee UI', 'Tahoma', 'Noto Serif Thai', serif", ocr: "tha", dir: "ltr", line: "bottom", slant: true, wordGaps: false, sheet: "ruled", trim: 3,
+    sample: { alphabet: "ก ข ค ง จ ฉ ช ซ ด ต ถ ท น บ ป", round: "อ ถ ก ด",
+      chain: "กกกก ดดดด อออ", minimum: "กกก กกก", sentence: "ตัวอย่างลายมือเขียนที่นี่" } },
+  cjk: {
+    label: "Chinese / Japanese", font: "'Yu Mincho', 'MS Mincho', 'SimSun', serif", ocr: "chi_sim", dir: "ltr", line: "center", slant: false, wordGaps: true, pitch: true, sheet: "cells",
+    sample: { alphabet: "一 二 三 十 木 林 森 田 目 日 月", round: "口 回 日 目", chain: "川川川 三三三",
+      minimum: "田田田 田田田", sentence: "手書きの文字の見本です" } },
+  hangul: {
+    label: "Korean", font: "'Batang', 'Malgun Gothic', serif", ocr: "kor", dir: "ltr", line: "center", slant: false, wordGaps: true, pitch: true, sheet: "cells",
+    sample: { alphabet: "가 나 다 라 마 바 사 아 자 차 카 타 파 하", round: "이 미 비 오", chain: "가가가 나나나",
+      minimum: "미미미 미미미", sentence: "손글씨 견본 문장입니다" } },
+};
+const scriptOf = k => SCRIPTS[k] || SCRIPTS.latin;
+
 // ---------- image analysis ----------
 function otsu(gray) {
   const h = new Float64Array(256);
@@ -819,7 +874,7 @@ function segSlant(px, py, n, W) {
   return bestDeg;
 }
 
-function rowStat(r, ink, W) {
+function rowStat(r, ink, W, sc = SCRIPTS.latin) {
   const px = [], py = [];
   for (let y = r.y0; y < r.y1; y++)
     for (let x = 0; x < W; x++)
@@ -838,12 +893,19 @@ function rowStat(r, ink, W) {
   }
   if (!slants.length) slants.push({ deg: segSlant(px, py, px.length, W), w: px.length });
 
-  // baseline: bottom-most ink per column, least-squares line, trimmed refit
+  // The line the writing is organised around, per column, then a least-squares fit with one
+  // trimmed refit. Which edge to sample is a property of the SCRIPT, not a constant: Latin
+  // sits on the bottom, Devanagari hangs from the top, CJK is boxed and only marches level.
   // ponytail: descenders (g,y,p) pollute the bottom profile; one trim pass handles it
   let wobble = null, baseline = null;
   const bx = [], by = [];
-  for (let x = 0; x < W; x++)
-    for (let y = r.y1 - 1; y >= r.y0; y--) if (ink[y * W + x]) { bx.push(x); by.push(y); break; }
+  for (let x = 0; x < W; x++) {
+    let top = -1, bot = -1;
+    for (let y = r.y0; y < r.y1; y++) if (ink[y * W + x]) { if (top < 0) top = y; bot = y; }
+    if (top < 0) continue;
+    bx.push(x);
+    by.push(sc.line === "top" ? top : sc.line === "center" ? (top + bot) / 2 : bot);
+  }
   if (bx.length > 10) {
     const fit = ix => {
       let n = ix.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
@@ -855,8 +917,15 @@ function rowStat(r, ink, W) {
     };
     let idx = bx.map((_, i) => i);
     let f = fit(idx);
-    idx = idx.filter(i => Math.abs(by[i] - (f.a + f.b * bx[i])) <= 1.5 * f.sd + 1);
-    if (idx.length > 10) f = fit(idx);
+    // Latin stays at a single pass on purpose — more would shift every score already in the
+    // user's history. Scripts carrying a lot of below-line material (Hebrew final forms,
+    // Thai vowel marks) declare more passes, which is new behaviour for them and only them.
+    for (let pass = 0; pass < (sc.trim || 1); pass++) {
+      const keep = idx.filter(i => Math.abs(by[i] - (f.a + f.b * bx[i])) <= 1.5 * f.sd + 1);
+      if (keep.length <= 10) break;
+      idx = keep;
+      f = fit(idx);
+    }
     wobble = { v: f.sd / height, w: bx.length };
     baseline = { x0: bx[0], x1: bx[bx.length - 1], a: f.a, b: f.b };
   }
@@ -883,25 +952,59 @@ function rowStat(r, ink, W) {
     }
     if (len) runs.push(len);
   }
-  return { height, slants, wobble, baseline, gaps, runs, y0: r.y0, y1: r.y1 };
+  // Character PITCH, for scripts written in cells. White-gap widths are a poor proxy there —
+  // the gaps inside one character swamp the gaps between characters — but the distance from
+  // one character's centre to the next is exactly the thing that should be even.
+  // Runs closer than 15% of the row height are treated as parts of one character.
+  const pitches = [];
+  if (sc.pitch) {
+    const runs2 = [];
+    let s0 = -1;
+    for (let x = first; x <= last + 1; x++) {
+      const on = x <= last && col[x] > 0;
+      if (on && s0 < 0) s0 = x;
+      else if (!on && s0 >= 0) { runs2.push([s0, x - 1]); s0 = -1; }
+    }
+    const merged = [];
+    for (const rn of runs2) {
+      const prev = merged[merged.length - 1];
+      if (prev && rn[0] - prev[1] < 0.15 * height) prev[1] = rn[1];
+      else merged.push([rn[0], rn[1]]);
+    }
+    const mid = r2 => (r2[0] + r2[1]) / 2;
+    for (let i = 1; i < merged.length; i++) pitches.push(mid(merged[i]) - mid(merged[i - 1]));
+  }
+  return { height, slants, wobble, baseline, gaps, runs, pitches, y0: r.y0, y1: r.y1 };
 }
 
-function spacingCvOf(gaps, style) {
+function spacingCvOf(gaps, wordGaps) {
   if (gaps.length < 4) return null;
   const srt = [...gaps].sort((a, b) => a - b);
   const med = srt[srt.length >> 1];
-  // ponytail: cursive joins letters, so word gaps are the signal there; print uses letter gaps
-  const sel = style === "cursive" ? gaps.filter(g => g >= med) : gaps.filter(g => g < 2.5 * med);
+  // ponytail: joined writing has no letter gaps, so word gaps are the signal — that is true of
+  // Latin cursive AND of scripts like Arabic and Devanagari that are joined by nature
+  const sel = wordGaps ? gaps.filter(g => g >= med) : gaps.filter(g => g < 2.5 * med);
   if (sel.length < 3) return null;
   const m = sel.reduce((a, b) => a + b) / sel.length;
   return Math.sqrt(sel.reduce((a, b) => a + (b - m) * (b - m), 0) / sel.length) / m;
 }
 
-function metricsFromRows(stats, style) {
+// spread of character pitch, ignoring word breaks
+function pitchCvOf(pitches) {
+  if (pitches.length < 3) return null;
+  const srt = [...pitches].sort((a, b) => a - b);
+  const med = srt[srt.length >> 1];
+  const sel = pitches.filter(v => v < 2 * med);
+  if (sel.length < 2) return null;
+  const m = sel.reduce((a, b) => a + b, 0) / sel.length;
+  return Math.sqrt(sel.reduce((a, b) => a + (b - m) * (b - m), 0) / sel.length) / m;
+}
+function metricsFromRows(stats, style, sc = SCRIPTS.latin) {
   const slants = stats.flatMap(s => s.slants);
   const wmean = (arr, f) => { let s = 0, w = 0; for (const a of arr) { s += f(a) * a.w; w += a.w; } return s / w; };
   const meanSlant = wmean(slants, s => s.deg);
-  const slantSd = slants.length >= 2 ? Math.sqrt(wmean(slants, s => (s.deg - meanSlant) ** 2)) : null;
+  // a script with no canonical stroke angle (CJK, Arabic) must not be graded on one
+  const slantSd = sc.slant && slants.length >= 2 ? Math.sqrt(wmean(slants, s => (s.deg - meanSlant) ** 2)) : null;
   const wobbles = stats.map(s => s.wobble).filter(Boolean);
   const wobble = wobbles.length ? wmean(wobbles, w => w.v) : null;
   const heights = stats.map(s => s.height);
@@ -909,7 +1012,9 @@ function metricsFromRows(stats, style) {
   let sizeCv = null;
   if (heights.length >= 2)
     sizeCv = Math.sqrt(heights.reduce((a, b) => a + (b - meanHeight) ** 2, 0) / heights.length) / meanHeight;
-  const spaceCv = spacingCvOf(stats.flatMap(s => s.gaps), style);
+  const spaceCv = sc.pitch
+    ? pitchCvOf(stats.flatMap(s => s.pitches || []))
+    : spacingCvOf(stats.flatMap(s => s.gaps), sc.wordGaps || style === "cursive");
 
   // pen control: spread of stroke widths. Long runs are horizontal strokes and joins
   // rather than crossings, so cap at 40% of row height before measuring.
@@ -938,14 +1043,16 @@ function metricsFromRows(stats, style) {
 }
 
 // ponytail: match constants hand-tuned; compares slant, size, and steadiness of copy vs original
-function mirrorMatch(a, b) {
-  const slantDiff = Math.abs(a.meanSlant - b.meanSlant);
+function mirrorMatch(a, b, sc = SCRIPTS.latin) {
   const sizeDiff = Math.abs(1 - b.meanHeight / a.meanHeight);
   const wobDiff = Math.abs((a.wobble ?? 0) - (b.wobble ?? 0));
-  return clamp(100 - 1.5 * slantDiff - 80 * sizeDiff - 150 * wobDiff);
+  // comparing stroke angle is meaningless where the script has no canonical one
+  const slantTerm = sc.slant ? 1.5 * Math.abs(a.meanSlant - b.meanSlant) : 0;
+  return clamp(100 - slantTerm - 80 * sizeDiff - 150 * wobDiff);
 }
 
 function analyze(img, opts = {}) {
+  const sc = scriptOf(opts.script);
   const scale = Math.min(1, 1000 / Math.max(img.width, img.height));
   const W = Math.max(1, Math.round(img.width * scale));
   const H = Math.max(1, Math.round(img.height * scale));
@@ -958,7 +1065,10 @@ function analyze(img, opts = {}) {
   for (let i = 0; i < W * H; i++) gray[i] = (d[i * 4] * 3 + d[i * 4 + 1] * 6 + d[i * 4 + 2]) / 10 | 0;
   const thr = otsu(gray);
   let ink = new Uint8Array(W * H), inkN = 0;
-  for (let i = 0; i < W * H; i++) if (gray[i] < thr) { ink[i] = 1; inkN++; }
+  // `<=`, not `<`: Otsu's threshold t means class one is [0..t]. On a photo the difference is
+  // one grey level, but on an already-binarised image (a Drive scan, a rendered PDF) the only
+  // dark value IS the threshold, and `<` finds no ink at all and reports an empty page.
+  for (let i = 0; i < W * H; i++) if (gray[i] <= thr) { ink[i] = 1; inkN++; }
   if (inkN > 0.45 * W * H) { // ponytail: dark-mode screenshot heuristic — just invert
     inkN = 0;
     for (let i = 0; i < W * H; i++) { ink[i] = 1 - ink[i]; inkN += ink[i]; }
@@ -984,18 +1094,18 @@ function analyze(img, opts = {}) {
     }
   }
   const minRowH = Math.max(5, H * 0.008);
-  const stats = rows.filter(r => r.y1 - r.y0 >= minRowH).map(r => rowStat(r, ink, W)).filter(Boolean);
+  const stats = rows.filter(r => r.y1 - r.y0 >= minRowH).map(r => rowStat(r, ink, W, sc)).filter(Boolean);
   if (!stats.length) return { error: "Couldn't detect any lines of text." };
 
   if (opts.mode === "mirror") {
     const dom = stats.filter((_, i) => i % 2 === 0);
     const non = stats.filter((_, i) => i % 2 === 1);
     if (!non.length) return { error: "Mirror mode needs alternating line pairs: dominant hand, then the copy right below it." };
-    const domM = metricsFromRows(dom, opts.style);
-    const nonM = metricsFromRows(non, opts.style);
-    return { canvas: c, stats, mirror: { dom: domM, non: nonM, match: mirrorMatch(domM, nonM) } };
+    const domM = metricsFromRows(dom, opts.style, sc);
+    const nonM = metricsFromRows(non, opts.style, sc);
+    return { canvas: c, stats, sc, mirror: { dom: domM, non: nonM, match: mirrorMatch(domM, nonM, sc) } };
   }
-  return { canvas: c, stats, metrics: metricsFromRows(stats, opts.style) };
+  return { canvas: c, stats, sc, metrics: metricsFromRows(stats, opts.style, sc) };
 }
 
 // ---------- OCR (tesseract.js, loaded on demand) ----------
@@ -1006,10 +1116,11 @@ function loadScript(src) {
     document.head.appendChild(s);
   });
 }
-async function ocrPage(canvas) {
+async function ocrPage(canvas, lang = "eng") {
   if (!window.Tesseract)
     await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
-  const worker = await Tesseract.createWorker("eng");
+  // the language pack is per script — reading Devanagari with the English model scores noise
+  const worker = await Tesseract.createWorker(lang);
   const { data } = await worker.recognize(canvas);
   await worker.terminate();
   return data;
@@ -1324,7 +1435,7 @@ const DRILLS = [
     sheet: { kind: "ruled" } },
   { id: "pen-slowmo", cat: "Pen control", ic: "🐢", title: "Slow-motion letters", min: 4, targets: ["stroke", "slantC"], hands: "both", styles: "both",
     how: "Write at a quarter of your normal speed — a single word should take ten seconds. Slow writing exposes every pressure change and hand tremor, and lets you correct them while they happen instead of afterwards.",
-    sheet: { kind: "ruled", text: "slow and even" } },
+    sheet: { kind: "ruled", textKey: "sentence", text: "slow and even" } },
   { id: "pen-grip", cat: "Pen control", ic: "🤏", title: "Loose-grip reset", min: 2, targets: ["stroke"], hands: "both", styles: "both",
     how: "Hold the pen just tightly enough that it does not fall, then write a line. If your fingertips go white or your forearm aches, you are strangling it — a death grip is the most common cause of uneven strokes and of hands that tire after half a page.",
     sheet: { kind: "ruled" } },
@@ -1335,10 +1446,10 @@ const DRILLS = [
     sheet: { kind: "slant" } },
   { id: "slant-letters", cat: "Slant", ic: "📏", title: "Straight-stem letters", min: 4, targets: ["slantC", "size"], hands: "both", styles: "both",
     how: "Rows of l, t, i, d, b — every letter built on a stem. The stems are the drill; the rest of the letter is decoration. Check by squinting: the stems should look like a picket fence.",
-    sheet: { kind: "slant", text: "l t i d b  l t i d b" } },
+    sheet: { kind: "slant", textKey: "chain", text: "l t i d b  l t i d b" } },
   { id: "slant-switch", cat: "Slant", ic: "🔀", title: "Deliberate slant switching", min: 4, targets: ["slantC"], hands: "both", styles: "both",
     how: "Write the same short sentence three times: once upright, once at 10° forward, once at 20°. Owning the angle on purpose is what stops it drifting by accident.",
-    sheet: { kind: "slant", text: "the same sentence three ways" } },
+    sheet: { kind: "slant", textKey: "sentence", text: "the same sentence three ways" } },
 
   // ---- baseline ----
   { id: "base-ruled", cat: "Baseline", ic: "📉", title: "Ruled-line discipline", min: 4, targets: ["baseline"], hands: "both", styles: "both",
@@ -1346,7 +1457,7 @@ const DRILLS = [
     sheet: { kind: "ruled" } },
   { id: "base-longwords", cat: "Baseline", ic: "🪜", title: "Long-word landings", min: 4, targets: ["baseline", "spacing"], hands: "both", styles: "both",
     how: "Long words only — extraordinary, refrigerator, championship, comfortable. Long words are where a hand drifts off the line, so they are where the correction sticks.",
-    sheet: { kind: "ruled", text: "extraordinary refrigerator championship" } },
+    sheet: { kind: "ruled", textKey: "sentence", text: "extraordinary refrigerator championship" } },
   { id: "base-nolines", cat: "Baseline", ic: "⬜", title: "Blank-page baseline", min: 5, targets: ["baseline"], hands: "both", styles: "both",
     how: "Print this sheet, slip it UNDER a blank page, and write on the blank page using the dark lines showing through. The goal is holding a line when the paper has none — which is most real paper.",
     sheet: { kind: "ruled", bold: true } },
@@ -1354,10 +1465,10 @@ const DRILLS = [
   // ---- size ----
   { id: "size-xheight", cat: "Size", ic: "📊", title: "x-height rows", min: 4, targets: ["size"], hands: "both", styles: "both",
     how: "Rows of a, o, e, c, s — round letters only, every one filling the band from baseline to the dashed midline exactly. No ascenders, no descenders, nothing to hide behind.",
-    sheet: { kind: "ruled", text: "a o e c s  a o e c s  a o e c s" } },
+    sheet: { kind: "ruled", textKey: "round", text: "a o e c s  a o e c s  a o e c s" } },
   { id: "size-ascdesc", cat: "Size", ic: "🔤", title: "Ascender & descender discipline", min: 4, targets: ["size"], hands: "both", styles: "both",
     how: "Alternate b d h k l (up to the top line) with g j p q y (down to the bottom line). Uneven letter size is nearly always uneven ascenders — this is the fix.",
-    sheet: { kind: "ruled", text: "b d h k l  g j p q y" } },
+    sheet: { kind: "ruled", textKey: "alphabet", text: "b d h k l  g j p q y" } },
   { id: "size-shrink", cat: "Size", ic: "🔻", title: "Shrink ladder", min: 5, targets: ["size", "legibility"], hands: "both", styles: "both",
     how: "Write the same sentence four times, each block half the height of the last. Control at large size transfers downward; starting small just bakes in the wobble.",
     sheet: { kind: "ruled", ladder: true } },
@@ -1368,10 +1479,10 @@ const DRILLS = [
   // ---- spacing ----
   { id: "space-oh", cat: "Spacing", ic: "↔️", title: "The 'o' gap", min: 4, targets: ["spacing"], hands: "both", styles: "both",
     how: "Write a sentence leaving exactly one 'o'-width between words — actually pencil a faint o in each gap for the first line, then remove the training wheels. Between letters, aim for half that.",
-    sheet: { kind: "ruled", text: "space o each o word o evenly" } },
+    sheet: { kind: "ruled", textKey: "sentence", text: "space o each o word o evenly" } },
   { id: "space-minimum", cat: "Spacing", ic: "⛰️", title: "The minimum drill", min: 4, targets: ["spacing", "size"], hands: "both", styles: "both",
     how: "Write 'minimum' over and over. It is the classic because it is nothing but identical strokes and identical gaps — any inconsistency in either shows up instantly.",
-    sheet: { kind: "ruled", text: "minimum minimum minimum" } },
+    sheet: { kind: "ruled", textKey: "minimum", text: "minimum minimum minimum" } },
   { id: "space-columns", cat: "Spacing", ic: "🧱", title: "Column alignment", min: 4, targets: ["spacing", "baseline"], hands: "both", styles: "print",
     how: "Write a short list on the grid — one word per row, all starting in the same column, all ending as close to even as you can manage. Trains the margin discipline that makes a page look tidy.",
     sheet: { kind: "grid" } },
@@ -1379,13 +1490,13 @@ const DRILLS = [
   // ---- cursive ----
   { id: "cur-joins", cat: "Cursive", ic: "🔗", title: "Ligature joins", min: 5, targets: ["legibility", "spacing"], hands: "both", styles: "cursive",
     how: "Pairs only: un, in, an, om, ea, th, ing. The join is the skill in cursive — the letters you already know. Keep the pen down through the whole pair.",
-    sheet: { kind: "ruled", text: "un in an om ea th ing" } },
+    sheet: { kind: "ruled", textKey: "chain", text: "un in an om ea th ing" } },
   { id: "cur-minimum", cat: "Cursive", ic: "〽️", title: "Cursive minimum", min: 4, targets: ["size", "spacing"], hands: "both", styles: "cursive",
     how: "'minimum' joined, without lifting once per word. Every hump the same width, every valley the same depth, every join the same angle.",
-    sheet: { kind: "ruled", text: "minimum minimum minimum" } },
+    sheet: { kind: "ruled", textKey: "minimum", text: "minimum minimum minimum" } },
   { id: "cur-chain", cat: "Cursive", ic: "⛓️", title: "Letter chains", min: 4, targets: ["slantC", "size", "stroke"], hands: "both", styles: "cursive",
     how: "Unbroken lines of mmmm, nnnn, oooo, eeee. Nothing to spell, nothing to think about — just rhythm and even pressure.",
-    sheet: { kind: "slant", text: "mmmm nnnn oooo eeee" } },
+    sheet: { kind: "slant", textKey: "chain", text: "mmmm nnnn oooo eeee" } },
   { id: "cur-caps", cat: "Cursive", ic: "🅰️", title: "Capital forms", min: 5, targets: ["legibility"], hands: "both", styles: "cursive",
     how: "Work through the capitals in families: the oval group (O C G Q), the loop group (L S J), the stem group (P B R D). Capitals are where cursive most often becomes unreadable.",
     sheet: { kind: "ruled" } },
@@ -1393,7 +1504,7 @@ const DRILLS = [
   // ---- print ----
   { id: "print-alphabet", cat: "Printing", ic: "🔡", title: "One form per letter", min: 5, targets: ["legibility", "size"], hands: "both", styles: "print",
     how: "Full alphabet, lower then upper. Pick ONE shape for each letter — especially a, g, and k, which people unconsciously switch between — and commit to it. Consistency is what reads as neat.",
-    sheet: { kind: "ruled", text: "abcdefghijklm nopqrstuvwxyz" } },
+    sheet: { kind: "ruled", textKey: "alphabet", text: "abcdefghijklm nopqrstuvwxyz" } },
   { id: "print-numerals", cat: "Printing", ic: "🔢", title: "Numerals and dates", min: 3, targets: ["legibility"], hands: "both", styles: "print",
     how: "0–9, then dates, phone numbers, and amounts. Numbers have no context to rescue them, so a sloppy 1/7 or 5/S actually costs you something. Give the 7 a crossbar and the 0 no slash.",
     sheet: { kind: "boxes" } },
@@ -1410,7 +1521,7 @@ const DRILLS = [
     sheet: { kind: "ruled", xh: 14 } },
   { id: "left-pull", cat: "Left hand", ic: "⬅️", title: "Pull-stroke alphabet", min: 5, targets: ["slantC", "legibility", "stroke"], hands: "L", styles: "both",
     how: "A left hand pushes strokes a right hand pulls, which is why the line skips. Work the alphabet slowly, noting which strokes push, and re-order those letters to pull where you can.",
-    sheet: { kind: "ruled", text: "abcdefghijklm nopqrstuvwxyz" } },
+    sheet: { kind: "ruled", textKey: "alphabet", text: "abcdefghijklm nopqrstuvwxyz" } },
 
   // ---- mirror ----
   { id: "mirror-pairs", cat: "Mirror prime", ic: "🪞", title: "Prime and copy", min: 6, targets: ["match", "size"], hands: "both", styles: "both",
@@ -1423,7 +1534,7 @@ const DRILLS = [
   // ---- speed & endurance ----
   { id: "speed-pangram", cat: "Speed", ic: "⚡", title: "Pangram sprint", min: 3, targets: ["speed", "legibility"], hands: "both", styles: "both",
     how: "Write a pangram as many times as you can in three minutes, but stop the moment it stops being readable. The number you care about is legible repetitions, not repetitions.",
-    sheet: { kind: "ruled", text: PANGRAMS[0] } },
+    sheet: { kind: "ruled", textKey: "sentence", text: PANGRAMS[0] } },
   { id: "speed-timed", cat: "Speed", ic: "⏱️", title: "Timed page fill", min: 10, targets: ["speed", "baseline"], hands: "both", styles: "both",
     how: "Fill one full page, timed. Log the minutes — that number over a full page is your real writing speed, and it should fall while your scores hold. Photograph the page afterwards.",
     sheet: { kind: "ruled" } },
@@ -1437,7 +1548,7 @@ const DRILLS = [
     sheet: { kind: "ruled" } },
   { id: "leg-selfread", cat: "Legibility", ic: "👓", title: "Cold read-back", min: 4, targets: ["legibility"], hands: "both", styles: "both",
     how: "Write half a page of unfamiliar text, put it away, and read it back tomorrow. Anything you stumble on is a letter shape to drill. Run the OCR check on it too — the engine is a harsh but honest reader.",
-    sheet: { kind: "ruled", text: PANGRAMS[2] } },
+    sheet: { kind: "ruled", textKey: "sentence", text: PANGRAMS[2] } },
 ];
 
 // ---------- multi-week programs ----------
@@ -1544,17 +1655,27 @@ function sheetSvg(spec, opts = {}) {
     const cell = xh;
     for (let x = 0; x <= W; x += cell) out += L(x, 8, x, H - 4, SHEET_INK.edge, 0.25);
     for (let y = 8; y <= H - 4; y += cell) out += L(0, y, W, y, SHEET_INK.edge, 0.25);
-  } else if (kind === "boxes") {
-    const cell = xh * 1.6, cols = Math.floor(W / cell), rows = Math.min(n, Math.floor((H - 12) / cell));
+  } else if (kind === "boxes" || kind === "cells") {
+    // "cells" is the square character grid CJK and Hangul are practised on, with the centre
+    // cross that lets you balance a character inside its box; "boxes" is the Latin variant,
+    // wider than tall in effect and ruled at x-height instead.
+    const cell = kind === "cells" ? xh * 2.2 : xh * 1.6;
+    const cols = Math.floor(W / cell), rows = Math.min(n, Math.floor((H - 12) / cell));
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
         const x = c * cell, y = 8 + r * cell;
         out += `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="none" stroke="${SHEET_INK.mid}" stroke-width="0.25"/>`;
-        out += L(x, y + cell * 0.66, x + cell, y + cell * 0.66, SHEET_INK.edge, 0.2, "1 1");
+        if (kind === "cells") {
+          out += L(x + cell / 2, y, x + cell / 2, y + cell, SHEET_INK.edge, 0.2, "1 1");
+          out += L(x, y + cell / 2, x + cell, y + cell / 2, SHEET_INK.edge, 0.2, "1 1");
+        } else {
+          out += L(x, y + cell * 0.66, x + cell, y + cell * 0.66, SHEET_INK.edge, 0.2, "1 1");
+        }
       }
   } else {
     // every ruled family: baseline + dashed x-height + faint ascender/descender rails
     const scale = spec.ladder ? [1, 1, 0.75, 0.75, 0.5, 0.5, 0.5, 0.35, 0.35, 0.35] : null;
+    const head = kind === "headline", rtl = spec.dir === "rtl";
     let y = 8;
     for (let i = 0; i < n; i++) {
       const k = scale ? (scale[i % scale.length]) : 1;
@@ -1563,27 +1684,50 @@ function sheetSvg(spec, opts = {}) {
       if (basey > H - 4) break;
       if (kind === "mirror" && i % 2 === 0)
         out += `<rect x="0" y="${(top - 1).toFixed(2)}" width="${W}" height="${(bot - top + 2).toFixed(2)}" fill="${SHEET_INK.tint}"/>`;
-      out += L(0, top, W, top, SHEET_INK.edge, 0.25);                       // ascender
-      out += L(0, basey - xhk, W, basey - xhk, SHEET_INK.mid, 0.25, "1.6 1.6"); // x-height (dashed — the writing convention)
-      out += L(0, basey, W, basey, SHEET_INK.base, bold ? 0.6 : 0.38);      // baseline
-      out += L(0, bot, W, bot, SHEET_INK.edge, 0.25);                       // descender
-      if (kind === "slant" && slant !== 0) {
+      out += L(0, top, W, top, SHEET_INK.edge, 0.25);                       // ascender / upper matras
+      // In Devanagari the letters HANG from the headline, so the strong rule is the top of
+      // the body and the bottom of the body is the light dashed one — the reverse of Latin.
+      out += head
+        ? L(0, basey - xhk, W, basey - xhk, SHEET_INK.base, bold ? 0.6 : 0.38)
+        : L(0, basey - xhk, W, basey - xhk, SHEET_INK.mid, 0.25, "1.6 1.6"); // x-height (dashed — the writing convention)
+      out += head
+        ? L(0, basey, W, basey, SHEET_INK.mid, 0.25, "1.6 1.6")
+        : L(0, basey, W, basey, SHEET_INK.base, bold ? 0.6 : 0.38);          // baseline
+      out += L(0, bot, W, bot, SHEET_INK.edge, 0.25);                       // descender / lower matras
+      if ((kind === "slant" || spec.slantRails) && slant !== 0) {
         const t = Math.tan(slant * Math.PI / 180), band = bot - top;
         for (let x = -band * Math.abs(t); x < W; x += xhk * 1.4)
           out += L(x + t * band, top, x, bot, SHEET_INK.slant, 0.25);
-      } else if (kind === "slant") {
+      } else if (kind === "slant" || spec.slantRails) {
         for (let x = 0; x < W; x += xhk * 1.4) out += L(x, top, x, bot, SHEET_INK.slant, 0.25);
       }
       if (kind === "mirror")
         out += `<text x="${W - 1}" y="${(basey - 0.8).toFixed(2)}" text-anchor="end" font-size="${(xhk * 0.4).toFixed(2)}" fill="${SHEET_INK.mid}">${i % 2 === 0 ? "dominant" : "copy"}</text>`;
-      // first line of a text drill is printed faintly to trace over
+      // First line of a text drill, printed faintly to trace over. RTL anchors at the RIGHT
+      // edge with the DEFAULT anchor: under direction:rtl the "start" is the right-hand side,
+      // so text-anchor="end" would anchor the left edge and run the line off the page.
       if (spec.text && i === 0)
-        out += `<text x="0.5" y="${(basey - 0.4).toFixed(2)}" font-size="${(xhk * 1.42).toFixed(2)}" fill="${SHEET_INK.trace}" font-family="Georgia, 'Times New Roman', serif"${slant ? ` transform="skewX(${-slant})" transform-origin="0 ${basey.toFixed(2)}"` : ""}>${esc(spec.text)}</text>`;
+        out += `<text x="${rtl ? (W - 0.5).toFixed(2) : "0.5"}"${rtl ? ` direction="rtl"` : ""} y="${(basey - 0.4).toFixed(2)}" font-size="${(xhk * 1.42).toFixed(2)}" fill="${SHEET_INK.trace}" font-family="${spec.font || "Georgia, 'Times New Roman', serif"}"${slant ? ` transform="skewX(${-slant})" transform-origin="0 ${basey.toFixed(2)}"` : ""}>${esc(spec.text)}</text>`;
       y += a + dsc + gap * k;
     }
   }
   return `<svg viewBox="0 0 ${W} ${H.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Handwriting practice guide sheet">` +
     `<rect width="${W}" height="${H.toFixed(1)}" fill="#fff"/>${out}</svg>`;
+}
+
+// A drill's sheet is authored in Latin terms. Adapt it to the script actually being written:
+// swap in that script's own practice text, move onto a headline or character grid where that
+// is what the script is written on, and carry the writing direction to the trace line.
+function adaptSheet(spec, sc) {
+  if (!spec) return spec;
+  let kind = spec.kind;
+  const slantRails = kind === "slant";
+  if (sc.sheet === "headline" && (kind === "ruled" || kind === "slant")) kind = "headline";
+  if (sc.sheet === "cells" && (kind === "ruled" || kind === "slant" || kind === "boxes")) kind = "cells";
+  const text = spec.textKey
+    ? (sc.sample[spec.textKey] || SCRIPTS.latin.sample[spec.textKey] || spec.text)
+    : spec.text;
+  return { ...spec, kind, slantRails, text, dir: sc.dir, font: sc.font };
 }
 
 // ---------- plan generator ----------
@@ -1699,7 +1843,7 @@ const MIRROR_TIP = "Write the dominant line slowly enough that the copy can matc
 
 // ---------- preferences ----------
 const prefs = Object.assign(
-  { hand: "R", style: "print", mode: "single", orient: "portrait", theme: "system", goalMin: 90, slant: 0, xh: 8, tab: "today" },
+  { hand: "R", style: "print", mode: "single", script: "latin", orient: "portrait", theme: "system", goalMin: 90, slant: 0, xh: 8, tab: "today" },
   JSON.parse(localStorage.getItem("hwh-prefs") || "{}"));
 const savePrefs = () => localStorage.setItem("hwh-prefs", JSON.stringify(prefs));
 const other = h => h === "R" ? "L" : "R";
@@ -1734,10 +1878,19 @@ function syncOptions() {
   $("style-cursive").classList.toggle("on", prefs.style === "cursive");
   $("mode-single").classList.toggle("on", prefs.mode === "single");
   $("mode-mirror").classList.toggle("on", prefs.mode === "mirror");
+  const sc = scriptOf(prefs.script);
+  if (!$("script-sel").options.length)
+    $("script-sel").innerHTML = Object.entries(SCRIPTS).map(([k, v]) =>
+      `<option value="${k}">${esc(v.label)}</option>`).join("");
+  $("script-sel").value = prefs.script;
   $("hand-lab").textContent = prefs.mode === "mirror" ? "Dominant hand" : "Hand";
-  $("mode-hint").textContent = prefs.mode === "mirror"
+  const modeHint = prefs.mode === "mirror"
     ? "Mirror prime: write each line with the dominant hand, then copy it with the other hand directly below — lines must alternate on the page."
     : "Single hand: the whole page written with the selected hand.";
+  const scHint = sc.line === "top" ? ` ${sc.label} hangs from the headline, so that is the line being measured.`
+    : sc.line === "center" ? ` ${sc.label} is written in cells, so characters are scored on staying level and even rather than on a baseline.`
+    : sc.slant ? "" : ` Slant isn't scored for ${sc.label} — it has no canonical stroke angle.`;
+  $("mode-hint").textContent = modeHint + scHint;
 }
 for (const [id, k, v] of [["hand-R", "hand", "R"], ["hand-L", "hand", "L"],
   ["style-print", "style", "print"], ["style-cursive", "style", "cursive"],
@@ -1746,6 +1899,13 @@ for (const [id, k, v] of [["hand-R", "hand", "R"], ["hand-L", "hand", "L"],
 }
 for (const v of ["portrait", "landscape", "auto"])
   $("or-" + v).onclick = () => { prefs.orient = v; syncOptions(); };
+$("script-sel").onchange = e => {
+  prefs.script = e.target.value;
+  syncOptions();
+  paintSheet();          // a drill sheet on screen should follow the script immediately
+  renderAll();
+  if (cur.img) runAnalysis(cur.img, true);
+};
 for (const [id, key, min, max] of [["goal-min", "goalMin", 10, 1200], ["slant-pref", "slant", -30, 30], ["xh-pref", "xh", 4, 16]]) {
   $(id).value = prefs[key];
   $(id).onchange = e => {
@@ -2116,7 +2276,7 @@ $("run-R").onclick = () => setRunHand("R");
 $("run-L").onclick = () => setRunHand("L");
 function paintSheet() {
   if (!runDrill?.sheet) { $("sheet-paper").innerHTML = ""; return; }
-  $("sheet-paper").innerHTML = sheetSvg(runDrill.sheet, {
+  $("sheet-paper").innerHTML = sheetSvg(adaptSheet(runDrill.sheet, scriptOf(prefs.script)), {
     lines: +$("sheet-lines").value || undefined,
     xh: +$("sheet-xh").value || prefs.xh,
     slant: +$("sheet-slant").value || 0,
@@ -2661,11 +2821,15 @@ function useSource(src, t, meta = {}) {
 }
 function showErr(msg) { const e = $("err"); e.textContent = msg; e.classList.remove("hidden"); }
 
-function tilesHtml(m, weakest) {
+// The organising line has a different name in each script family, and a script with no
+// canonical stroke angle shouldn't show a slant tile reading "–" as though you'd failed it.
+const LINE_LABEL = { top: "Headline", center: "Staying level", bottom: "Baseline" };
+function tilesHtml(m, weakest, sc = SCRIPTS.latin) {
   const meta = [
     ["overall", "Overall", ""],
-    ["slantC", "Slant steadiness", m.slantSd == null ? "need 2+ lines" : `±${m.slantSd.toFixed(1)}°`],
-    ["baseline", "Baseline", m.wobble == null ? "–" : `wobble ${(m.wobble * 100).toFixed(0)}%`],
+    ["slantC", "Slant steadiness", !sc.slant ? "not scored for " + sc.label
+      : m.slantSd == null ? "need 2+ lines" : `±${m.slantSd.toFixed(1)}°`],
+    ["baseline", LINE_LABEL[sc.line] || "Baseline", m.wobble == null ? "–" : `wobble ${(m.wobble * 100).toFixed(0)}%`],
     ["size", "Size consistency", m.sizeCv == null ? "need 2+ lines" : `±${(m.sizeCv * 100).toFixed(0)}%`],
     ["spacing", "Spacing", m.spaceCv == null ? "need more words" : `±${(m.spaceCv * 100).toFixed(0)}%`],
     ["stroke", "Pen control", m.strokeCv == null ? "need more ink" : `stroke ±${(m.strokeCv * 100).toFixed(0)}%`],
@@ -2709,7 +2873,7 @@ function suggestFor(metric, hand, style) {
 
 function runAnalysis(img, keepOcr) {
   $("err").classList.add("hidden");
-  const r = analyze(img, { mode: prefs.mode, style: prefs.style });
+  const r = analyze(img, { mode: prefs.mode, style: prefs.style, script: prefs.script });
   if (r.error) { showErr(r.error); $("result").classList.add("hidden"); return; }
   cur.r = r;
   if (!keepOcr) cur.ocr = null;
@@ -2746,22 +2910,24 @@ function runAnalysis(img, keepOcr) {
   let weak = null, weakHand = prefs.hand;
   if (r.mirror) {
     const dh = handName(prefs.hand), nh = handName(other(prefs.hand));
-    $("slantline").textContent = `${r.stats.length} lines detected · pairs scored as ${dh} (dominant) / ${nh} (copy)`;
+    $("slantline").textContent = `${r.sc.label} · ${r.stats.length} lines detected · pairs scored as ${dh} (dominant) / ${nh} (copy)`;
     weak = weakestOf(r.mirror.non);
     weakHand = other(prefs.hand);
     $("scorebox").innerHTML =
       `<div class="tiles"><div class="tile"><div class="v">${r.mirror.match}%</div><div class="l">Mirror match</div><div class="d">how closely the copy mimics the original</div></div></div>` +
-      `<h3>Dominant (${dh})</h3>` + tilesHtml(r.mirror.dom, null) +
-      `<h3>Copy (${nh})</h3>` + tilesHtml(r.mirror.non, weak);
+      `<h3>Dominant (${dh})</h3>` + tilesHtml(r.mirror.dom, null, r.sc) +
+      `<h3>Copy (${nh})</h3>` + tilesHtml(r.mirror.non, weak, r.sc);
     if (weak) tips.push(METRIC_TIP[weak]);
     tips.push(MIRROR_TIP, ...HAND_TIP[other(prefs.hand)]);
   } else {
     const m = r.metrics;
     const dir = m.meanSlant > 3 ? "forward" : m.meanSlant < -3 ? "backward" : "upright";
+    const lineWord = r.sc.line === "top" ? "headlines" : r.sc.line === "center" ? "centre lines" : "baselines";
     $("slantline").textContent =
-      `Average slant: ${Math.abs(m.meanSlant).toFixed(0)}° ${dir} · ${r.stats.length} line${r.stats.length > 1 ? "s" : ""} detected (baselines drawn)`;
+      (r.sc.slant ? `Average slant: ${Math.abs(m.meanSlant).toFixed(0)}° ${dir} · ` : `${r.sc.label} · `) +
+      `${r.stats.length} line${r.stats.length > 1 ? "s" : ""} detected (${lineWord} drawn)`;
     weak = weakestOf(m);
-    $("scorebox").innerHTML = tilesHtml(m, weak);
+    $("scorebox").innerHTML = tilesHtml(m, weak, r.sc);
     if (weak) tips.push(METRIC_TIP[weak]);
     tips.push(STYLE_TIP[prefs.style], ...HAND_TIP[prefs.hand]);
   }
@@ -2816,7 +2982,8 @@ $("ocr-btn").onclick = async () => {
   st.textContent = "Reading page… (first run downloads the OCR engine)";
   $("ocr-btn").disabled = true;
   try {
-    const data = await ocrPage(cur.img || cur.r.canvas); // full-res source reads better than the analyzer's downscale
+    // full-res source reads better than the analyzer's downscale; language follows the script
+    const data = await ocrPage(cur.img || cur.r.canvas, scriptOf(prefs.script).ocr);
     cur.ocr = { date: parseOcrDate(data.text), dur: parseDuration(data.text), conf: Math.round(data.confidence) };
     if (cur.ocr.dur && !$("dur").value) $("dur").value = cur.ocr.dur;
     if (cur.ocr.date) {
@@ -2857,7 +3024,8 @@ $("save-btn").onclick = () => {
   const projectId = $("save-project").value || undefined;
   prefs.lastProject = projectId || ""; // most people work through one book at a time
   savePrefs();
-  s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match, projectId });
+  s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, script: prefs.script,
+    durationMin: +$("dur").value || null, results, match, projectId });
   saveSessions(s);
   saveThumb(id, cur.r.canvas, s); // after the push, so pruning sees the new session
   if (cur.drive) { // remember which scans are already logged, per page
@@ -3059,6 +3227,112 @@ if (location.search.includes("selftest")) {
   pass = check("sync: tombstone beats a remote copy", m3.length === 1 && m3[0].id === "a") && pass;
   pass = check("sync: deleted session stays deleted", mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]).length === 0) && pass;
   pass = check("sync: tombstones dedupe", mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]).length === 2) && pass;
+
+  // --- scripts / alphabets ---
+  // Bars of varying height aligned by one edge. This tests the mechanism without needing a
+  // Devanagari or CJK font installed: whichever edge is straight is the one the matching
+  // line mode should lock onto, and the other modes should visibly fail to.
+  const synthBars = align => {
+    const c = document.createElement("canvas");
+    c.width = 900; c.height = 300;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, 900, 300);
+    x.fillStyle = "#000";
+    for (let row = 0; row < 3; row++) {
+      const top = 30 + row * 90;
+      for (let i = 0; i < 20; i++) {
+        const h = 30 + (i % 4) * 12;
+        const y = align === "top" ? top : align === "center" ? top + (66 - h) / 2 : top + 66 - h;
+        x.fillRect(40 + i * 40, y, 22, h);
+      }
+    }
+    return c;
+  };
+  const wob = (align, script) => {
+    const r = analyze(synthBars(align), { mode: "single", style: "print", script });
+    if (r.error) throw new Error("analyze failed on the " + align + " fixture: " + r.error);
+    return r.metrics.wobble;
+  };
+  // Regression: these bars are PURELY bimodal, only #000 and #fff. Otsu returns t=0 for such
+  // an image, so testing `gray < t` found no ink and every already-binarised page — a Drive
+  // scan, a rendered PDF — came back "Couldn't find any writing in that image."
+  pass = check("analysis: an already-binarised page is not reported as empty",
+    !analyze(synthBars("bottom"), { mode: "single", style: "print" }).error) && pass;
+  pass = check("scripts: Latin locks onto a straight bottom edge, got " + (wob("bottom", "latin") * 100).toFixed(1) + "%",
+    wob("bottom", "latin") < 0.03) && pass;
+  pass = check("scripts: Devanagari locks onto a straight TOP edge, got " + (wob("top", "devanagari") * 100).toFixed(1) + "%",
+    wob("top", "devanagari") < 0.03) && pass;
+  pass = check("scripts: measuring a hanging script from the bottom is much worse, got " + (wob("top", "latin") * 100).toFixed(1) + "%",
+    wob("top", "latin") > 5 * wob("top", "devanagari")) && pass;
+  pass = check("scripts: CJK locks onto the centre line, got " + (wob("center", "cjk") * 100).toFixed(1) + "%",
+    wob("center", "cjk") < 0.03) && pass;
+  pass = check("scripts: bottom-edge fitting fails on centred characters",
+    wob("center", "latin") > 5 * wob("center", "cjk")) && pass;
+  // history comparability: naming Latin explicitly must change nothing at all
+  const noScript = analyze(synth(0, 4), { mode: "single", style: "print" });
+  const asLatin = analyze(synth(0, 4), { mode: "single", style: "print", script: "latin" });
+  pass = check("scripts: Latin is the default, so old sessions score identically",
+    JSON.stringify(noScript.metrics.scores) === JSON.stringify(asLatin.metrics.scores)) && pass;
+  pass = check("scripts: an unknown script falls back to Latin",
+    scriptOf("klingon") === SCRIPTS.latin && scriptOf(undefined) === SCRIPTS.latin) && pass;
+  // table integrity
+  const scKeys = Object.keys(SCRIPTS);
+  pass = check("scripts: catalogue is populated, got " + scKeys.length, scKeys.length >= 9) && pass;
+  pass = check("scripts: every one declares a valid line mode",
+    scKeys.every(k => ["bottom", "top", "center"].includes(SCRIPTS[k].line))) && pass;
+  pass = check("scripts: every one has an OCR language, direction and label",
+    scKeys.every(k => SCRIPTS[k].ocr && ["ltr", "rtl"].includes(SCRIPTS[k].dir) && SCRIPTS[k].label)) && pass;
+  pass = check("scripts: every one carries its own practice text",
+    scKeys.every(k => ["alphabet", "round", "chain", "minimum", "sentence"].every(t => SCRIPTS[k].sample[t]))) && pass;
+  pass = check("scripts: slant is not scored for CJK, Hangul or Arabic",
+    !SCRIPTS.cjk.slant && !SCRIPTS.hangul.slant && !SCRIPTS.arabic.slant && SCRIPTS.latin.slant) && pass;
+  const cjkScores = analyze(synthBars("center"), { mode: "single", style: "print", script: "cjk" }).metrics.scores;
+  pass = check("scripts: a script with no canonical angle reports no slant score",
+    cjkScores.slantC === null) && pass;
+  pass = check("scripts: overall still computes without a slant score", cjkScores.overall != null) && pass;
+  // spacing rule
+  // Joined writing has mostly WORD gaps and only a few small ones (the pen rarely lifts), so
+  // the distribution is bimodal with the median above the small gaps. Word-gap mode should
+  // then ignore the strays and report the even word spacing.
+  const joined = [20, 22, 19, 21, 5, 6, 20];
+  pass = check("scripts: joined writing is judged on word gaps, not letter gaps",
+    spacingCvOf(joined, true) < spacingCvOf(joined, false)) && pass;
+  pass = check("scripts: word-gap mode sees the even spacing, got " +
+    (spacingCvOf(joined, true) * 100).toFixed(0) + "%", spacingCvOf(joined, true) < 0.1) && pass;
+  pass = check("scripts: character pitch ignores word breaks",
+    pitchCvOf([10, 10, 10, 40, 10, 10]) < 0.05) && pass;
+  pass = check("scripts: pitch needs enough characters to mean anything", pitchCvOf([10, 10]) === null) && pass;
+  // sheets follow the script
+  const adaptD = adaptSheet({ kind: "ruled", textKey: "alphabet" }, SCRIPTS.devanagari);
+  pass = check("sheets: Devanagari gets a headline sheet", adaptD.kind === "headline") && pass;
+  pass = check("sheets: and its own alphabet", adaptD.text === SCRIPTS.devanagari.sample.alphabet) && pass;
+  pass = check("sheets: CJK gets a character grid",
+    adaptSheet({ kind: "ruled" }, SCRIPTS.cjk).kind === "cells") && pass;
+  pass = check("sheets: RTL scripts carry their direction through",
+    adaptSheet({ kind: "ruled" }, SCRIPTS.arabic).dir === "rtl") && pass;
+  pass = check("sheets: slant rails survive a swap to a headline sheet",
+    adaptSheet({ kind: "slant" }, SCRIPTS.devanagari).slantRails === true) && pass;
+  pass = check("sheets: Latin is left exactly as authored",
+    adaptSheet({ kind: "ruled", text: "abc" }, SCRIPTS.latin).kind === "ruled") && pass;
+  pass = check("sheets: a drill with no sheet stays without one", adaptSheet(null, SCRIPTS.cjk) === null) && pass;
+  pass = check("sheets: headline renders", sheetSvg({ kind: "headline" }, { lines: 4, xh: 8 }).includes("<line")) && pass;
+  pass = check("sheets: cells render a centre cross",
+    (sheetSvg({ kind: "cells" }, { lines: 4, xh: 8 }).match(/stroke-dasharray/g) || []).length > 4) && pass;
+  const rtlSvg = sheetSvg({ kind: "ruled", text: "ابت", dir: "rtl" }, { lines: 2, xh: 8 });
+  pass = check("sheets: RTL trace text starts at the right edge", /<text x="189\.50" direction="rtl"/.test(rtlSvg)) && pass;
+  // regression: under direction:rtl the logical "end" is the LEFT side, so anchoring end at the
+  // right edge sends the whole line off the page — which is exactly what it used to do
+  pass = check("sheets: RTL never anchors to the logical end", !/text-anchor="end"[^>]*direction="rtl"/.test(rtlSvg)) && pass;
+  pass = check("sheets: LTR trace text still starts at the left edge",
+    /<text x="0\.5"/.test(sheetSvg({ kind: "ruled", text: "abc" }, { lines: 2, xh: 8 }))) && pass;
+  pass = check("scripts: each declares a font stack that has its glyphs",
+    Object.values(SCRIPTS).every(sc => sc.font && sc.font.includes("serif"))) && pass;
+  pass = check("sheets: the traced line uses the script's font, not Latin's",
+    sheetSvg(adaptSheet({ kind: "ruled", textKey: "alphabet" }, SCRIPTS.devanagari), { lines: 2, xh: 8 })
+      .includes("Nirmala UI")) && pass;
+  pass = check("sheets: every script renders every drill sheet",
+    Object.values(SCRIPTS).every(sc => DRILLS.filter(d => d.sheet)
+      .every(d => sheetSvg(adaptSheet(d.sheet, sc), { xh: 8, slant: 5 }).startsWith("<svg")))) && pass;
 
   // --- pen control metric ---
   const sc = up.metrics.scores;

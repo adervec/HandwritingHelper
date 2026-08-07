@@ -15,8 +15,8 @@ to it, and measures how much the writing varies:
 
 | Score | What it measures |
 |---|---|
-| Slant steadiness | Spread of stroke angles. Not *what* your angle is — that you keep picking the same one. |
-| Baseline | How far letter bottoms scatter around the fitted line. Descenders are trimmed out first. |
+| Slant steadiness | Spread of stroke angles. Not *what* your angle is — that you keep picking the same one. Not scored for scripts with no canonical angle. |
+| Baseline | Scatter around the line the script is organised around — the bottom for Latin, the headline for Devanagari, the centre for CJK. |
 | Size consistency | Variation in line height. |
 | Spacing | Variation in gaps — letter gaps in print, word gaps in cursive, since cursive joins letters. |
 | Pen control | Variation in stroke width, from horizontal ink run-lengths. Catches a grip that's too tight. |
@@ -40,6 +40,14 @@ lines). Sheets fit one page on both A4 and Letter.
 warm-up, two drills at the weak spot, one at the runner-up, then something to photograph. Or start
 one of three **multi-week programs** — *Left hand from scratch* (8 weeks), *Neater printing* (6),
 *Cursive revival* (6) — which replace the generator with an ordered syllabus that advances by date.
+
+**Nine alphabets, not just Latin.** Latin, Cyrillic, Greek, Hebrew, Arabic, Devanagari, Thai,
+Chinese/Japanese and Korean. The analyzer's geometry is a set of Latin assumptions, so each script
+declares what actually applies to it: Devanagari hangs from a headline rather than sitting on a
+baseline, CJK and Korean are boxed and only need to march level, Arabic and CJK have no canonical
+stroke angle so slant isn't scored, joined and cell-set scripts are judged on word gaps and
+character pitch instead of letter gaps. Drills print their own alphabet on the right guide sheet
+(headline, character cells, right-to-left) and OCR loads the matching language model.
 
 **Group pages into projects.** A page of practice and a page of a book you're copying out aren't the
 same thing. File pages under a project — a book (with author and a page goal), a journal, a course

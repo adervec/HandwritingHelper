@@ -83,6 +83,7 @@ refuses to move.</p>
     <li><a href="#photo">Photographing a page</a></li>
     <li><a href="#anatomy">The anatomy of a written line</a></li>
     <li><a href="#metrics">What each score measures</a></li>
+    <li><a href="#scripts">Other alphabets</a></li>
     <li><a href="#posture">Posture, grip and paper</a></li>
     <li><a href="#left">Writing with the left hand</a></li>
     <li><a href="#practice">How to practise so it sticks</a></li>
@@ -185,6 +186,50 @@ which is most of what people mean when they call handwriting neat.</p>
   Legibility needs OCR and is often absent; pen control was added later. Folding either into the average
   would silently re-scale every score already in your history and make the trend line a lie.
   So Overall means the same thing on your first page as on your hundredth.</p>
+</div>
+
+<h2 id="scripts">3b · Other alphabets</h2>
+<p>Everything above is written in Latin terms, and most of it does not survive a change of script.
+Pick your alphabet in the <b>Analyze</b> tab and the app changes what it measures, what it prints,
+and which OCR language it reads with.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Alphabet</th><th>Organised around</th><th>Slant scored?</th><th>Guide sheet</th></tr></thead>
+  <tbody>
+    <tr><td>Latin, Cyrillic, Greek</td><td>a baseline the letters sit on</td><td>yes</td><td>ruled</td></tr>
+    <tr><td>Hebrew</td><td>a baseline; final forms hang below it</td><td>yes</td><td>ruled, right-to-left</td></tr>
+    <tr><td>Arabic</td><td>a baseline; letters join</td><td>no — no canonical angle</td><td>ruled, right-to-left</td></tr>
+    <tr><td>Devanagari</td><td>the <b>headline</b> the letters hang from</td><td>yes</td><td>headline</td></tr>
+    <tr><td>Thai</td><td>a baseline; marks sit above and below</td><td>yes</td><td>ruled</td></tr>
+    <tr><td>Chinese / Japanese, Korean</td><td>staying level in a cell</td><td>no</td><td>square cells with a centre cross</td></tr>
+  </tbody>
+</table>
+</div>
+<h3>What changes, concretely</h3>
+<ul>
+  <li><b>The line being measured.</b> Latin letters sit on a baseline, so the app fits a line
+    through the bottom of the writing. Devanagari hangs from the शिरोरेखा, so it fits the
+    <em>top</em> instead — fitting the bottom would measure the ragged underside of the letters
+    and report a page as far worse than it is. Chinese, Japanese and Korean are written in cells
+    with no baseline at all, so the app checks that characters march level through their centres.</li>
+  <li><b>Whether slant is scored.</b> A consistent stroke angle is a real skill in Latin,
+    Cyrillic, Greek, Hebrew, Devanagari and Thai. It is not a thing in Arabic, Chinese, Japanese
+    or Korean, so no slant score is shown rather than a meaningless one.</li>
+  <li><b>Which gaps count.</b> In separated scripts the gaps between letters carry the
+    information. In joined ones — Arabic, Devanagari, and Latin cursive — the pen rarely lifts,
+    so the gaps that matter are between words. In cell-set scripts the app measures the
+    <em>pitch</em> from one character's centre to the next, because the white space inside a
+    single character says nothing about your spacing.</li>
+  <li><b>The drills and their sheets.</b> Alphabet, round-letter, chain and sentence drills print
+    in your script, on the right guide sheet, running the right way across the page.</li>
+  <li><b>OCR.</b> The legibility check loads the language model for your script.</li>
+</ul>
+<div class="card tip">
+  <h3>Scores are comparable within a script, not across them</h3>
+  <p>Each alphabet is measured consistently, but the absolute numbers sit at slightly different
+  levels — some scripts simply carry more below-the-line material than others. A Hebrew 80 and a
+  Latin 80 are not the same achievement. Compare yourself against yourself in one script, which
+  is what the trend chart does anyway.</p>
 </div>
 
 <h2 id="posture">4 · Posture, grip and paper</h2>
