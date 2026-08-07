@@ -1689,7 +1689,7 @@ function renderProgress(S, st) {
     return `<div class="badge${got ? "" : " locked"}" title="${esc(b.d)}"><div class="e">${b.e}</div><div class="n">${esc(b.n)}</div><div class="d">${esc(b.d)}</div></div>`;
   }).join("");
 
-  const pages = S.filter(s => !isDrill(s));
+  const pages = S.filter(s => !isDrill(s) && s.results); // an imported row without scores must not break the table
   $("empty").classList.toggle("hidden", pages.length > 0);
   $("histtable").classList.toggle("hidden", pages.length === 0);
   $("hist-note").textContent = pages.length ? `${pages.length} analyzed page${pages.length === 1 ? "" : "s"}` : "";
@@ -2142,7 +2142,8 @@ $("drive-save").onclick = () => {
   DRIVE.clientId = $("drive-client").value.trim();
   saveDrive();
   driveTok = null;
-  $("drive-status").textContent = DRIVE.clientId ? "Client ID saved." : "Using this site's built-in client ID.";
+  // the button lives in Setup, so the message has to land there too
+  $("sync-status").textContent = DRIVE.clientId ? "Client ID saved." : "Using this site's built-in client ID.";
 };
 $("drive-scan").onclick = async () => {
   const id = folderId($("drive-folder").value);
@@ -2355,8 +2356,10 @@ if (location.search.includes("selftest")) {
   drawHeat(stS);
   pass = check("heat: 18 weeks of cells, got " + $("heat").children.length, $("heat").children.length >= 120) && pass;
   pass = check("heat: active days are shaded", [...$("heat").children].some(c => c.style.background.includes("seq-") && !c.style.background.includes("seq-0"))) && pass;
-  pass = check("spark: renders with 2+ points", sparkline(stS, "R").includes("<svg") === false || sparkline(stS, "R").includes("polyline")) && pass;
+  pass = check("spark: renders a polyline with 2+ points", sparkline(stS, "R").includes("<polyline")) && pass;
   pass = check("spark: single point renders nothing", sparkline([stS[0]], "R") === "") && pass;
+  pass = check("history: a row with no scores is skipped, not thrown on",
+    (renderProgress([{ id: "bad", t: Date.now(), kind: "page" }], deriveStats([])), true)) && pass;
 
   document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
   $("selftest").textContent = document.title + ` (${out.length} checks)\n` + out.join("\n");
