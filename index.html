@@ -457,6 +457,16 @@
     <p class="subline hidden" id="srcline"></p>
     <p class="subline" id="slantline"></p>
     <div id="scorebox"></div>
+    <details id="lines-card">
+      <summary>Line by line</summary>
+      <p class="subline" id="lines-note"></p>
+      <div class="tablewrap">
+        <table id="lines-table">
+          <thead><tr><th>Line</th><th>Height</th><th>vs typical</th><th>Slant drift</th><th>Baseline wobble</th><th>Score</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
     <ul id="tips"></ul>
     <div class="savebar">
       <div class="fieldrow">
@@ -813,7 +823,7 @@ function rowStat(r, ink, W) {
     }
     if (len) runs.push(len);
   }
-  return { height, slants, wobble, baseline, gaps, runs };
+  return { height, slants, wobble, baseline, gaps, runs, y0: r.y0, y1: r.y1 };
 }
 
 function spacingCvOf(gaps, style) {
@@ -2394,6 +2404,25 @@ const weakestOf = m => {
     if (m.scores[k] != null && (w == null || m.scores[k] < m.scores[w])) w = k;
   return w;
 };
+// Per-line breakdown. "Your baseline is 62" is not actionable; "line 7 sagged and
+// line 9 is a third taller than the rest" is — those are the lines to look at.
+function lineBreakdown(stats) {
+  // median, not mean: one oversized line would otherwise drag the reference up and
+  // report every well-behaved line as undersized
+  const sorted = stats.map(s => s.height).sort((a, b) => a - b);
+  const meanH = sorted[sorted.length >> 1];
+  return stats.map((s, i) => {
+    const degs = s.slants.map(x => x.deg);
+    const drift = degs.length > 1 ? Math.max(...degs) - Math.min(...degs) : null;
+    const wob = s.wobble ? s.wobble.v : null;
+    const sizeDev = Math.abs(s.height - meanH) / (meanH || 1);
+    // same shape as the page-level scores so the numbers feel comparable
+    const score = clamp(100 - 300 * (wob ?? 0) - 150 * sizeDev - 3 * (drift ?? 0));
+    return { n: i + 1, height: s.height, meanH, drift, wob, sizeDev, score, y0: s.y0, y1: s.y1 };
+  });
+}
+const worstLine = rows => rows.length < 2 ? null : rows.reduce((a, b) => b.score < a.score ? b : a);
+
 // the weakest metric names a drill, so the analysis ends with something to actually do
 function suggestFor(metric, hand, style) {
   const pool = DRILLS.filter(d => d.targets.includes(metric) && drillFits(d, hand, style));
@@ -2412,6 +2441,14 @@ function runAnalysis(img, keepOcr) {
   pv.width = r.canvas.width; pv.height = r.canvas.height;
   const ctx = pv.getContext("2d");
   ctx.drawImage(r.canvas, 0, 0);
+  // shade the weakest line first so the baselines draw on top of it
+  const rows = lineBreakdown(r.stats), worst = worstLine(rows);
+  if (worst) {
+    ctx.fillStyle = cssVar("--warn") || "#eda100";
+    ctx.globalAlpha = 0.13;
+    ctx.fillRect(0, worst.y0, pv.width, worst.y1 - worst.y0);
+    ctx.globalAlpha = 1;
+  }
   ctx.lineWidth = 2; ctx.globalAlpha = 0.8;
   const colR = cssVar("--right"), colL = cssVar("--left");
   r.stats.forEach((s, i) => {
@@ -2451,6 +2488,22 @@ function runAnalysis(img, keepOcr) {
     tips.push(STYLE_TIP[prefs.style], ...HAND_TIP[prefs.hand]);
   }
   $("tips").innerHTML = tips.map(t => `<li>${t}</li>`).join("");
+
+  // line-by-line table, worst row flagged the same amber as the shading on the image
+  $("lines-card").classList.toggle("hidden", rows.length < 2);
+  $("lines-note").textContent = worst
+    ? `Line ${worst.n} is the weakest on this page — it's shaded above.`
+    : "";
+  $("lines-table").querySelector("tbody").innerHTML = rows.map(l => {
+    const dev = Math.round((l.height - l.meanH) / (l.meanH || 1) * 100);
+    return `<tr${l === worst ? ` style="background:color-mix(in srgb, var(--warn) 12%, transparent)"` : ""}>
+      <td>${l.n}${l === worst ? " ⚠" : ""}</td>
+      <td>${Math.round(l.height)}px</td>
+      <td>${dev > 0 ? "+" : ""}${dev}%</td>
+      <td>${l.drift == null ? "–" : l.drift.toFixed(0) + "°"}</td>
+      <td>${l.wob == null ? "–" : (l.wob * 100).toFixed(0) + "%"}</td>
+      <td><b>${l.score}</b></td></tr>`;
+  }).join("");
   const sug = weak && suggestFor(weak, weakHand, prefs.style);
   if (sug) $("tips").insertAdjacentHTML("beforeend",
     `<li>Drill for this: <button class="act" data-drill="${sug.id}">${sug.ic} ${esc(sug.title)} · ${sug.min} min</button></li>`);
@@ -2836,6 +2889,28 @@ if (location.search.includes("selftest")) {
   pass = check("stats: empty history is safe", deriveStats([]).streak === 0 && deriveStats([]).best === -1) && pass;
   pass = check("stats: metric average over pages, got " + metricAvg(stS, "R", "overall"), metricAvg(stS, "R", "overall") === 79) && pass;
   pass = check("stats: drills never enter score averages", metricAvg(stS, "L", "overall") === 40) && pass;
+
+  // --- per-line breakdown ---
+  const lb = lineBreakdown(up.stats);
+  pass = check("lines: one row per detected line, got " + lb.length, lb.length === up.stats.length) && pass;
+  pass = check("lines: every row scored 0-100", lb.every(l => l.score >= 0 && l.score <= 100)) && pass;
+  pass = check("lines: numbered from 1", lb[0].n === 1 && lb[lb.length - 1].n === lb.length) && pass;
+  pass = check("lines: identical lines sit on the typical height",
+    lb.every(l => Math.abs(l.sizeDev) < 0.5)) && pass;
+  // one outsized line must not drag the reference and mislabel every good line
+  const oddOne = lineBreakdown([{ height: 20, slants: [], wobble: null, y0: 0, y1: 20 },
+    { height: 20, slants: [], wobble: null, y0: 20, y1: 40 },
+    { height: 20, slants: [], wobble: null, y0: 40, y1: 60 },
+    { height: 60, slants: [], wobble: null, y0: 60, y1: 120 }]);
+  pass = check("lines: the three normal lines read as 0% off typical",
+    oddOne.slice(0, 3).every(l => l.sizeDev === 0)) && pass;
+  pass = check("lines: the outlier reads as +200%, got " + Math.round(oddOne[3].sizeDev * 100),
+    Math.round(oddOne[3].sizeDev * 100) === 200) && pass;
+  pass = check("lines: worst is the lowest-scoring row",
+    worstLine(lb).score === Math.min(...lb.map(l => l.score))) && pass;
+  pass = check("lines: a single line has no worst", worstLine([lb[0]]) === null) && pass;
+  pass = check("lines: shading bounds come from the row, not guessed",
+    lb.every(l => l.y1 > l.y0)) && pass;
 
   // --- thumbnails + compare ---
   const tAll = { a: "IMGA", b: "IMGB", c: "IMGC", gone: "IMGX" };
