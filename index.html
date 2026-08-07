@@ -365,6 +365,12 @@
     <p class="subline" id="goal-line"></p>
   </div>
 
+  <div class="card hidden" id="current-proj">
+    <div class="card-hd"><h2 id="cp-name">Current project</h2><span class="pill" id="cp-pill"></span></div>
+    <div class="bar hidden" id="cp-bar-wrap"><i id="cp-bar" style="width:0%"></i></div>
+    <p class="subline" id="cp-line"></p>
+  </div>
+
   <div class="card" id="plan-card">
     <div class="card-hd">
       <h2>Today's plan</h2>
@@ -1827,7 +1833,7 @@ function renderToday(S, st) {
   // rather than a wall of zeroes and an empty chart.
   const fresh = st.pages === 0;
   $("firstrun").classList.toggle("hidden", !fresh);
-  for (const id of ["goal-card", "plan-card", "profile-card"]) $(id).classList.toggle("hidden", fresh);
+  for (const id of ["goal-card", "plan-card", "profile-card", "current-proj"]) $(id).classList.toggle("hidden", fresh);
   if (fresh) {
     bindDrillButtons("firstrun");
     $("firstrun-page").onclick = () => showTab("analyze");
@@ -1855,6 +1861,7 @@ function renderToday(S, st) {
     : `${prefs.goalMin - st.weekMin} min to go · ${st.todayMin} min logged today`) +
     (atRisk ? ` · <b>${st.streak}-day streak still needs today</b>` : "");
 
+  renderCurrentProject(S);
   planCache = loadPlan(S, false);
   renderPlan(S);
 
@@ -1872,6 +1879,33 @@ function renderToday(S, st) {
 
   drawProfile(S);
 }
+// The project you're actually in the middle of — the one your most recent filed page
+// belongs to, not the newest project created. Surfaced on Today so a long book stays
+// visible instead of living one tab away.
+function activeProject(S, ps = loadProjects()) {
+  const last = [...S].reverse().find(s => !isDrill(s) && s.projectId && projById(s.projectId, ps));
+  const p = last && projById(last.projectId, ps);
+  return p && !p.archivedAt ? p : null;
+}
+function renderCurrentProject(S) {
+  const p = activeProject(S);
+  $("current-proj").classList.toggle("hidden", !p);
+  if (!p) return;
+  const st = projectStats(p, S);
+  $("cp-name").textContent = `${PROJECT_IC[p.kind] || "📄"} ${p.name}`;
+  $("cp-pill").textContent = `${st.pages} page${st.pages === 1 ? "" : "s"}`;
+  $("cp-bar-wrap").classList.toggle("hidden", st.pct == null);
+  if (st.pct != null) {
+    $("cp-bar").style.width = st.pct + "%";
+    $("cp-bar").classList.toggle("done", st.pct >= 100);
+  }
+  const ago = Math.round((Date.now() - st.last) / DAY);
+  $("cp-line").textContent =
+    (st.pct != null ? `${st.pages} of ${p.targetPages} pages — ${st.pct}%. ` : "") +
+    (ago <= 0 ? "Worked on today." : `Last worked ${ago} day${ago === 1 ? "" : "s"} ago.`) +
+    ` ${fmtMin(st.minutes)} in so far.`;
+}
+
 function deltaFor(S, h) {
   const now = Date.now(), d14 = 14 * DAY;
   const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
@@ -3171,6 +3205,15 @@ if (location.search.includes("selftest")) {
   // a v2 bundle predates projects entirely — merging against it must not wipe local ones
   pass = check("projects: an older sync bundle can't delete local projects",
     mergeProjects([q("a", "A")], undefined, undefined).length === 1) && pass;
+  const pList = [PJ, { id: "p2", name: "Journal", kind: "journal", startedAt: 2 }];
+  pass = check("projects: the active one is the newest FILED page's, not the newest project",
+    activeProject(pS, pList)?.id === "p1") && pass;
+  pass = check("projects: unfiled pages don't pick an active project",
+    activeProject([pS[2]], pList) === null) && pass;
+  pass = check("projects: an archived project is never surfaced as active",
+    activeProject(pS, [{ ...PJ, archivedAt: 1 }]) === null) && pass;
+  pass = check("projects: a page pointing at a deleted project is ignored",
+    activeProject(pS, []) === null) && pass;
   fillProjectSelect($("chart-project"), "", "All projects");
   pass = check("projects: the picker always offers the no-project choice first",
     $("chart-project").options[0].value === "" && $("chart-project").options[0].textContent === "All projects") && pass;
