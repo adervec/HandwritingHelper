@@ -798,6 +798,9 @@ const dayKey = t => { const d = new Date(t); return d.getFullYear() + "-" + Stri
 //              small gaps sit inside a single character.
 //   ocr        Tesseract language code. sheet: which guide sheet suits it.
 //   font       a stack that actually HAS the glyphs, for the traced line on a guide sheet.
+//   evenStroke false where the letterforms carry deliberate thick/thin contrast (the
+//              Devanagari headline, Arabic and CJK brush forms), so stroke-width spread is
+//              the script showing through rather than a wobbly hand.
 //   sample     script-appropriate practice text for the drills that need words.
 const SCRIPTS = {
   latin: {
@@ -817,11 +820,11 @@ const SCRIPTS = {
     sample: { alphabet: "אבגדהוזחטיכלמנסעפצקרשת", round: "ס ם ט ע", chain: "וווו נננן סססס",
       minimum: "מממ מממ", sentence: "דג סקרן שט בים מאוכזב ולפתע מצא חברה" } },
   arabic: {
-    label: "Arabic", font: "'Traditional Arabic', 'Segoe UI', 'Arial', serif", ocr: "ara", dir: "rtl", line: "bottom", slant: false, wordGaps: true, sheet: "ruled",
+    label: "Arabic", evenStroke: false, font: "'Traditional Arabic', 'Segoe UI', 'Arial', serif", ocr: "ara", dir: "rtl", line: "bottom", slant: false, wordGaps: true, sheet: "ruled",
     sample: { alphabet: "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض", round: "ه و ة ق",
       chain: "ببب سسس ننن", minimum: "ببب ببب", sentence: "نص حكيم له سر قاطع وذو شأن عظيم" } },
   devanagari: {
-    label: "Devanagari", font: "'Nirmala UI', 'Mangal', 'Noto Serif Devanagari', serif", ocr: "hin", dir: "ltr", line: "top", slant: true, wordGaps: true, sheet: "headline",
+    label: "Devanagari", evenStroke: false, font: "'Nirmala UI', 'Mangal', 'Noto Serif Devanagari', serif", ocr: "hin", dir: "ltr", line: "top", slant: true, wordGaps: true, sheet: "headline",
     sample: { alphabet: "क ख ग घ च छ ज झ ट ठ ड ढ त थ द", round: "म भ फ ठ",
       chain: "ममम नननन ललल", minimum: "ममम ममम", sentence: "हिंदी लिखावट का नमूना यहाँ" } },
   thai: {
@@ -829,11 +832,11 @@ const SCRIPTS = {
     sample: { alphabet: "ก ข ค ง จ ฉ ช ซ ด ต ถ ท น บ ป", round: "อ ถ ก ด",
       chain: "กกกก ดดดด อออ", minimum: "กกก กกก", sentence: "ตัวอย่างลายมือเขียนที่นี่" } },
   cjk: {
-    label: "Chinese / Japanese", font: "'Yu Mincho', 'MS Mincho', 'SimSun', serif", ocr: "chi_sim", dir: "ltr", line: "center", slant: false, wordGaps: true, pitch: true, sheet: "cells",
+    label: "Chinese / Japanese", evenStroke: false, font: "'Yu Mincho', 'MS Mincho', 'SimSun', serif", ocr: "chi_sim", dir: "ltr", line: "center", slant: false, wordGaps: true, pitch: true, sheet: "cells",
     sample: { alphabet: "一 二 三 十 木 林 森 田 目 日 月", round: "口 回 日 目", chain: "川川川 三三三",
       minimum: "田田田 田田田", sentence: "手書きの文字の見本です" } },
   hangul: {
-    label: "Korean", font: "'Batang', 'Malgun Gothic', serif", ocr: "kor", dir: "ltr", line: "center", slant: false, wordGaps: true, pitch: true, sheet: "cells",
+    label: "Korean", evenStroke: false, font: "'Batang', 'Malgun Gothic', serif", ocr: "kor", dir: "ltr", line: "center", slant: false, wordGaps: true, pitch: true, sheet: "cells",
     sample: { alphabet: "가 나 다 라 마 바 사 아 자 차 카 타 파 하", round: "이 미 비 오", chain: "가가가 나나나",
       minimum: "미미미 미미미", sentence: "손글씨 견본 문장입니다" } },
 };
@@ -1047,7 +1050,8 @@ function metricsFromRows(stats, style, sc = SCRIPTS.latin) {
   // silently re-scale every score already in your history and break the trend line.
   const vals = ["slantC", "baseline", "size", "spacing"].map(k => scores[k]).filter(v => v != null);
   scores.overall = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-  scores.stroke = strokeCv == null ? null : clamp(100 - 150 * strokeCv);
+  // suppressed where the script's own forms are thick-and-thin by design
+  scores.stroke = (strokeCv == null || sc.evenStroke === false) ? null : clamp(100 - 150 * strokeCv);
   return { meanSlant, slantSd, wobble, sizeCv, spaceCv, strokeCv, strokeMed, meanHeight, scores };
 }
 
@@ -2841,7 +2845,8 @@ function tilesHtml(m, weakest, sc = SCRIPTS.latin) {
     ["baseline", LINE_LABEL[sc.line] || "Baseline", m.wobble == null ? "–" : `wobble ${(m.wobble * 100).toFixed(0)}%`],
     ["size", "Size consistency", m.sizeCv == null ? "need 2+ lines" : `±${(m.sizeCv * 100).toFixed(0)}%`],
     ["spacing", "Spacing", m.spaceCv == null ? "need more words" : `±${(m.spaceCv * 100).toFixed(0)}%`],
-    ["stroke", "Pen control", m.strokeCv == null ? "need more ink" : `stroke ±${(m.strokeCv * 100).toFixed(0)}%`],
+    ["stroke", "Pen control", sc.evenStroke === false ? "not scored — " + sc.label + " is thick-and-thin by design"
+      : m.strokeCv == null ? "need more ink" : `stroke ±${(m.strokeCv * 100).toFixed(0)}%`],
   ];
   return `<div class="tiles">` + meta.map(([k, label, det]) => `
     <div class="tile${k === weakest ? " weak" : ""}">
@@ -3313,6 +3318,10 @@ if (location.search.includes("selftest")) {
   const cjkScores = analyze(synthBars("center"), { mode: "single", style: "print", script: "cjk" }).metrics.scores;
   pass = check("scripts: a script with no canonical angle reports no slant score",
     cjkScores.slantC === null) && pass;
+  pass = check("scripts: pen control is not scored where thick-and-thin is the script itself",
+    cjkScores.stroke === null && SCRIPTS.devanagari.evenStroke === false) && pass;
+  pass = check("scripts: pen control IS scored for monoline scripts",
+    SCRIPTS.latin.evenStroke !== false && SCRIPTS.hebrew.evenStroke !== false) && pass;
   pass = check("scripts: overall still computes without a slant score", cjkScores.overall != null) && pass;
   // spacing rule
   // Joined writing has mostly WORD gaps and only a few small ones (the pen rarely lifts), so
