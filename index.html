@@ -242,6 +242,17 @@
   .filerow.done { color: var(--ink-muted); }
 
   /* ---------- badges ---------- */
+  /* ---------- compare ---------- */
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+  .cmp figure { margin: 0; }
+  .cmp img { width: 100%; display: block; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+  .cmp .none {
+    display: grid; place-items: center; text-align: center; padding: 24px 10px; border-radius: 8px;
+    border: 1px dashed var(--axis); color: var(--ink-muted); font-size: 12px; min-height: 90px;
+  }
+  .cmp figcaption { font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+  .cmp figcaption b { font-size: 19px; color: var(--ink-1); }
+
   .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
   .badge { text-align: center; padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-1); }
   .badge.locked { opacity: .38; }
@@ -483,6 +494,18 @@
   <div class="card">
     <h2>Totals</h2>
     <div class="tiles" id="stat-tiles"></div>
+  </div>
+
+  <div class="card" id="compare-card">
+    <div class="card-hd"><h2>Then and now</h2><span class="d muted" style="font-size:12px">pages are kept on this device only</span></div>
+    <div class="fieldrow">
+      <span class="flab">Hand</span>
+      <div class="seg"><button id="cmp-R">Right</button><button id="cmp-L">Left</button></div>
+      <select id="cmp-a"></select>
+      <span class="flab">vs</span>
+      <select id="cmp-b"></select>
+    </div>
+    <div id="compare-body"></div>
   </div>
 
   <div class="card">
@@ -1511,6 +1534,34 @@ const BADGES = [
   { id: "mirror", e: "🪞", n: "Mirrored", d: "Log a mirror-prime page", test: s => s.mirrors >= 1 },
   { id: "cursive", e: "✒️", n: "Joined up", d: "Log a cursive page", test: s => s.cursive >= 1 },
 ];
+// ---------- page thumbnails ----------
+// Charts tell you a number went up; a picture of your own handwriting from two months
+// ago is what actually convinces you. Kept deliberately small and deliberately LOCAL:
+// they never enter the Drive sync file, which would balloon it and is not what that
+// private folder is for. Newest 40 only, so this can't creep toward the storage quota.
+const THUMB_KEY = "hwh-thumbs", THUMB_MAX = 40, THUMB_W = 220;
+const loadThumbs = () => { try { return JSON.parse(localStorage.getItem(THUMB_KEY) || "{}"); } catch (e) { return {}; } };
+// keep the newest `max` thumbnails whose session still exists — pure, so it is testable
+// without writing over the real store
+function pruneThumbs(all, sessions, max = THUMB_MAX) {
+  const keep = {};
+  for (const id of sessions.map(s => s.id).filter(i => all[i]).slice(-max)) keep[id] = all[id];
+  return keep;
+}
+function saveThumb(id, canvas, sessions) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = THUMB_W;
+    c.height = Math.max(1, Math.round(canvas.height * (THUMB_W / canvas.width)));
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); // JPEG has no alpha; avoid black
+    x.drawImage(canvas, 0, 0, c.width, c.height);
+    const all = loadThumbs();
+    all[id] = c.toDataURL("image/jpeg", 0.55);
+    localStorage.setItem(THUMB_KEY, JSON.stringify(pruneThumbs(all, sessions)));
+  } catch (e) { /* quota or a tainted canvas — a thumbnail must never block saving a session */ }
+}
+
 // ---------- coaching tips ----------
 const METRIC_TIP = {
   slantC: "Slant wanders between lines — pick one slant (upright is fine) and fill a warm-up line with ///// strokes at that exact angle first.",
@@ -1960,6 +2011,7 @@ function renderProgress(S, st) {
     [metricAvg(S, "L", "overall") ?? "–", "Left average", "last 8 pages", sparkline(S, "L")],
   ].map(([v, l, d, sp]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div><div class="d">${d}</div>${sp || ""}</div>`).join("");
 
+  renderCompare(S);
   renderWeekly(S);
   drawHeat(S);
   drawTrend(S);
@@ -1985,6 +2037,52 @@ function renderProgress(S, st) {
   $("histtable").querySelectorAll("[data-detail]").forEach(b => b.onclick = () => openDetail(b.dataset.detail));
   $("hist-note").textContent += pages.length ? " · tap a date for the full breakdown" : "";
 }
+// ---------- then and now ----------
+let cmpHand = null, cmpPick = {}; // remembered per hand so switching hands doesn't reset both ends
+function renderCompare(S) {
+  const has = h => S.filter(s => !isDrill(s) && s.results?.[h]?.overall != null);
+  if (!cmpHand || !has(cmpHand).length) cmpHand = has("R").length >= has("L").length ? "R" : "L";
+  $("cmp-R").classList.toggle("on", cmpHand === "R");
+  $("cmp-L").classList.toggle("on", cmpHand === "L");
+  const list = has(cmpHand);
+  $("compare-card").classList.toggle("hidden", list.length < 2);
+  if (list.length < 2) return;
+  const pick = cmpPick[cmpHand] ||= { a: list[0].id, b: list[list.length - 1].id };
+  if (!list.some(s => s.id === pick.a)) pick.a = list[0].id;
+  if (!list.some(s => s.id === pick.b)) pick.b = list[list.length - 1].id;
+  const opts = sel => list.map(s =>
+    `<option value="${s.id}"${s.id === pick[sel] ? " selected" : ""}>${new Date(s.t).toLocaleDateString()} · ${s.results[cmpHand].overall}</option>`).join("");
+  $("cmp-a").innerHTML = opts("a");
+  $("cmp-b").innerHTML = opts("b");
+
+  const thumbs = loadThumbs();
+  const A = list.find(s => s.id === pick.a), B = list.find(s => s.id === pick.b);
+  const pane = s => {
+    const img = thumbs[s.id]
+      ? `<img src="${thumbs[s.id]}" alt="Handwriting from ${new Date(s.t).toLocaleDateString()}">`
+      : `<div class="none">no page kept<br>(only the newest ${THUMB_MAX} are stored)</div>`;
+    return `<figure>${img}<figcaption><b>${s.results[cmpHand].overall}</b> overall<br>${new Date(s.t).toLocaleDateString()} · ${esc(s.style)}</figcaption></figure>`;
+  };
+  const keys = ["overall", "slantC", "baseline", "size", "spacing", "stroke", "legibility"];
+  const rows = keys.filter(k => A.results[cmpHand][k] != null || B.results[cmpHand][k] != null).map(k => {
+    const a = A.results[cmpHand][k], b = B.results[cmpHand][k];
+    const d = a != null && b != null ? b - a : null;
+    const chip = d == null ? `<span class="muted">—</span>`
+      : `<span class="delta ${d > 0 ? "up" : d < 0 ? "down" : "flat"}">${d > 0 ? "+" : ""}${d}</span>`;
+    return `<tr><td>${k === "overall" ? "Overall" : METRIC_LABEL[k]}</td><td class="muted">${a ?? "–"}</td><td><b>${b ?? "–"}</b></td><td>${chip}</td></tr>`;
+  }).join("");
+  const gap = Math.round((B.t - A.t) / DAY);
+  $("compare-body").innerHTML =
+    `<div class="cmp">${pane(A)}${pane(B)}</div>` +
+    `<p class="subline">${gap === 0 ? "Same day." : `${Math.abs(gap)} days apart.`}</p>` +
+    `<div class="tablewrap"><table><tbody><tr><th>Score</th><th>Then</th><th>Now</th><th>Change</th></tr>${rows}</tbody></table></div>`;
+}
+for (const h of ["R", "L"]) $("cmp-" + h).onclick = () => { cmpHand = h; renderCompare(loadSessions()); };
+for (const k of ["a", "b"]) $("cmp-" + k).onchange = e => {
+  (cmpPick[cmpHand] ||= {})[k] = e.target.value;
+  renderCompare(loadSessions());
+};
+
 // this calendar week against the one before it — the horizon people actually plan on
 function weeklyRows(S, now = Date.now()) {
   const ws = weekStart(now), ls = ws - 7 * DAY;
@@ -2048,7 +2146,10 @@ function openDetail(id, S = loadSessions()) { // S injectable so the self-test n
     ? Object.keys(s.results).sort((a, b) => (s.results[a][weak] ?? 101) - (s.results[b][weak] ?? 101))[0]
     : null;
   const sug = weak && suggestFor(weak, weakHand, s.style);
+  const thumb = loadThumbs()[s.id];
   $("detail-body").innerHTML = `<div>
+    ${thumb ? `<div class="card"><img src="${thumb}" alt="The page from this session"
+      style="width:100%;border-radius:8px;border:1px solid var(--border);background:#fff"></div>` : ""}
     <div class="card">
       <div class="fieldrow" style="margin:0">
         <span class="pill">${esc(s.style)}</span>
@@ -2078,6 +2179,9 @@ function bindDeletes(rootId) {
     if (b.textContent !== "Sure?") { b.textContent = "Sure?"; return; }
     const id = b.dataset.del;
     saveSessions(loadSessions().filter(s => s.id !== id));
+    const th = loadThumbs(); // the page image goes with the session
+    delete th[id];
+    try { localStorage.setItem(THUMB_KEY, JSON.stringify(th)); } catch (e) {}
     // tombstone so the delete survives the next sync instead of coming back
     localStorage.setItem(TOMB_KEY, JSON.stringify(mergeTombs(loadTombs(), [{ id, at: Date.now() }])));
     if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
@@ -2418,8 +2522,10 @@ $("save-btn").onclick = () => {
     match = cur.r.mirror.match;
   } else results[prefs.hand] = withLeg(cur.r.metrics.scores);
   const s = loadSessions();
-  s.push({ id: newId(), t, kind: "page", style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
+  const id = newId();
+  s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
   saveSessions(s);
+  saveThumb(id, cur.r.canvas, s); // after the push, so pruning sees the new session
   if (cur.drive) { // remember which scans are already logged, per page
     DRIVE.imported = [...new Set([...DRIVE.imported, cur.drive.id + "#" + cur.page])].slice(-500);
     saveDrive();
@@ -2730,6 +2836,34 @@ if (location.search.includes("selftest")) {
   pass = check("stats: empty history is safe", deriveStats([]).streak === 0 && deriveStats([]).best === -1) && pass;
   pass = check("stats: metric average over pages, got " + metricAvg(stS, "R", "overall"), metricAvg(stS, "R", "overall") === 79) && pass;
   pass = check("stats: drills never enter score averages", metricAvg(stS, "L", "overall") === 40) && pass;
+
+  // --- thumbnails + compare ---
+  const tAll = { a: "IMGA", b: "IMGB", c: "IMGC", gone: "IMGX" };
+  const tSess = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  pass = check("thumbs: drops images whose session was deleted",
+    !("gone" in pruneThumbs(tAll, tSess))) && pass;
+  pass = check("thumbs: keeps only the newest N, got " + Object.keys(pruneThumbs(tAll, tSess, 2)).join(","),
+    JSON.stringify(pruneThumbs(tAll, tSess, 2)) === JSON.stringify({ b: "IMGB", c: "IMGC" })) && pass;
+  pass = check("thumbs: no sessions means no images kept",
+    Object.keys(pruneThumbs(tAll, [])).length === 0) && pass;
+  pass = check("thumbs: a session with no image is skipped, not stored as undefined",
+    !("d" in pruneThumbs(tAll, [...tSess, { id: "d" }]))) && pass;
+  const cSess = [
+    { id: "c1", t: Date.now() - 40 * DAY, kind: "page", style: "print", results: { R: { overall: 55, slantC: 50, baseline: 60 } } },
+    { id: "c2", t: Date.now(), kind: "page", style: "print", results: { R: { overall: 78, slantC: 74, baseline: 82 } } },
+  ];
+  const savedHand = cmpHand, savedPick = cmpPick;
+  cmpHand = null; cmpPick = {};
+  renderCompare(cSess);
+  pass = check("compare: two panes rendered", $("compare-body").querySelectorAll("figure").length === 2) && pass;
+  pass = check("compare: shows the gap in days", $("compare-body").textContent.includes("40 days apart")) && pass;
+  pass = check("compare: overall change is +23", $("compare-body").textContent.includes("+23")) && pass;
+  pass = check("compare: falls back to a placeholder with no stored image",
+    $("compare-body").querySelectorAll(".none").length === 2) && pass;
+  cmpHand = null; cmpPick = {};
+  renderCompare([cSess[0]]);
+  pass = check("compare: hidden with fewer than two pages", $("compare-card").classList.contains("hidden")) && pass;
+  cmpHand = savedHand; cmpPick = savedPick;
 
   // --- first run + streak nudge ---
   pass = check("first run: no pages means no plan to show", deriveStats([]).pages === 0) && pass;
