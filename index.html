@@ -930,12 +930,21 @@ function rowStat(r, ink, W, sc = SCRIPTS.latin) {
     baseline = { x0: bx[0], x1: bx[bx.length - 1], a: f.a, b: f.b };
   }
 
-  // gaps in the column projection inside this row
+  // Gaps in the column projection. Project along the writing's OWN slant rather than straight
+  // down: on slanted writing a vertical projection smears neighbouring letters into each other,
+  // so gaps merge and vanish and the spacing score collapses. Same shear segSlant() solved for.
   const gaps = [];
-  const col = new Float64Array(W);
-  for (let i = 0; i < px.length; i++) col[px[i]]++;
+  const wsum = slants.reduce((a, s) => a + s.w, 0) || 1;
+  const rowDeg = slants.reduce((a, s) => a + s.deg * s.w, 0) / wsum;
+  // Only shear where slant is a real property of the script. For CJK or Arabic the measured
+  // angle is noise, and shearing by it just smears the character pitch.
+  const tSh = sc.slant ? Math.tan(rowDeg * Math.PI / 180) : 0;
+  const off = Math.ceil(Math.abs(tSh) * height) + 2;
+  const CW = W + 2 * off;
+  const col = new Float64Array(CW);
+  for (let i = 0; i < px.length; i++) col[Math.round(px[i] + tSh * (py[i] - r.y0)) + off]++;
   let first = -1, last = -1;
-  for (let x = 0; x < W; x++) if (col[x]) { if (first < 0) first = x; last = x; }
+  for (let x = 0; x < CW; x++) if (col[x]) { if (first < 0) first = x; last = x; }
   let g0 = -1;
   for (let x = first; x <= last; x++) {
     if (!col[x] && g0 < 0) g0 = x;
@@ -3227,6 +3236,21 @@ if (location.search.includes("selftest")) {
   pass = check("sync: tombstone beats a remote copy", m3.length === 1 && m3[0].id === "a") && pass;
   pass = check("sync: deleted session stays deleted", mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]).length === 0) && pass;
   pass = check("sync: tombstones dedupe", mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]).length === 2) && pass;
+
+  // --- printing vs cursive, and slant-invariance ---
+  // Regression: gaps used to be projected straight down, so a slanted hand smeared its letters
+  // together and the spacing score swung between 18 and 77 on the SAME text at different angles.
+  const spacingAt = (deg, st) => analyze(synth(deg, 4), { mode: "single", style: st }).metrics.scores.spacing;
+  const spPrint = [0, 5, 10, 15, 20, 25].map(d => spacingAt(d, "print"));
+  pass = check("spacing: stable across a 0-25° slant, range " + (Math.max(...spPrint) - Math.min(...spPrint)),
+    Math.max(...spPrint) - Math.min(...spPrint) <= 15) && pass;
+  pass = check("spacing: a slanted hand is not penalised, got " + spPrint.join(","),
+    Math.min(...spPrint) > 40) && pass;
+  const spCur = [0, 10, 20].map(d => spacingAt(d, "cursive"));
+  pass = check("cursive: the word-gap rule is applied consistently, got " + spCur.join(","),
+    Math.max(...spCur) - Math.min(...spCur) <= 15) && pass;
+  pass = check("cursive: separated text scores differently under the two rules",
+    Math.abs(spacingAt(10, "print") - spacingAt(10, "cursive")) > 20) && pass;
 
   // --- scripts / alphabets ---
   // Bars of varying height aligned by one edge. This tests the mechanism without needing a
