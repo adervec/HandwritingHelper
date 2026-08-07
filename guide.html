@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2a78d6">
+<title>Handwriting Helper — Reference</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface-1: #fcfcfb; --surface-2: #f3f2ee;
+    --ink-1: #0b0b0b; --ink-2: #52514e; --ink-muted: #898781;
+    --grid: #e1e0d9; --border: rgba(11,11,11,0.10);
+    --right: #2a78d6; --left: #008300; --accent: #2a78d6; --tint: rgba(42,120,214,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #232322;
+      --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+      --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+      --right: #3987e5; --left: #008300; --accent: #3987e5; --tint: rgba(57,135,229,0.12);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink-1);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 20px 18px 80px; }
+  .topbar {
+    position: sticky; top: 0; z-index: 5; background: var(--page);
+    border-bottom: 1px solid var(--border); padding: 10px 18px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  }
+  .topbar a { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 14px; }
+  h1 { font-size: 26px; margin: 8px 0 4px; letter-spacing: -0.02em; }
+  h2 {
+    font-size: 19px; margin: 34px 0 10px; letter-spacing: -0.01em;
+    padding-top: 14px; border-top: 1px solid var(--grid);
+  }
+  h3 { font-size: 15px; margin: 20px 0 6px; }
+  p, li { color: var(--ink-2); }
+  li { margin: 5px 0; }
+  strong, b { color: var(--ink-1); }
+  .lede { font-size: 17px; color: var(--ink-2); }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin: 16px 0; }
+  .card.tip { border-left: 3px solid var(--accent); }
+  .card h3 { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--ink-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { color: var(--ink-2); }
+  .tablewrap { overflow-x: auto; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  nav.toc { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; }
+  nav.toc ol { margin: 6px 0 0; padding-left: 20px; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  figure { margin: 16px 0; }
+  figcaption { font-size: 13px; color: var(--ink-muted); margin-top: 6px; }
+  svg.diagram { width: 100%; height: auto; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+  .hand-R { color: var(--right); font-weight: 600; }
+  .hand-L { color: var(--left); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./">‹ Back to the app</a>
+  <span style="font-size:13px;color:var(--ink-muted)">Reference</span>
+</div>
+<main>
+
+<h1>The reference</h1>
+<p class="lede">Everything the app assumes you know: how to photograph a page so the analysis works,
+what each score actually measures, how to sit and hold the pen, and what to do when a number
+refuses to move.</p>
+
+<nav class="toc">
+  <b style="font-size:14px">On this page</b>
+  <ol>
+    <li><a href="#photo">Photographing a page</a></li>
+    <li><a href="#anatomy">The anatomy of a written line</a></li>
+    <li><a href="#metrics">What each score measures</a></li>
+    <li><a href="#posture">Posture, grip and paper</a></li>
+    <li><a href="#left">Writing with the left hand</a></li>
+    <li><a href="#practice">How to practise so it sticks</a></li>
+    <li><a href="#fix">Troubleshooting: symptom → fix</a></li>
+    <li><a href="#mirror">Mirror priming</a></li>
+    <li><a href="#faq">Questions</a></li>
+  </ol>
+</nav>
+
+<h2 id="photo">1 · Photographing a page</h2>
+<p>The analyzer finds lines of ink, fits a baseline to each, and measures how those lines vary.
+It is looking at geometry, not meaning — so the photo has to preserve geometry.</p>
+<ul>
+  <li><b>Straight on, not at an angle.</b> A tilted photo shears every letter, which the analyzer
+    reads as slant. Hold the camera parallel to the page, centred.</li>
+  <li><b>Flat paper.</b> A curved page bends the baselines. Flatten it, or use the Drive scanner app,
+    which de-warps for you.</li>
+  <li><b>Even light, no hard shadow.</b> Your own shadow across the page turns into fake ink.</li>
+  <li><b>Dark ink on light paper.</b> Pencil works if it is dark enough; very light pencil does not.</li>
+  <li><b>Crop to the writing.</b> Desk, hands and margins are noise. If the page has printed
+    guide lines and they photograph dark, the analyzer may score <em>them</em> instead of you.</li>
+  <li><b>Two lines minimum.</b> Slant steadiness and size consistency compare lines to each other,
+    so a single line cannot produce them.</li>
+</ul>
+<div class="card tip">
+  <h3>The single biggest mistake</h3>
+  <p>Photographing at an angle and then wondering why the slant score dropped. If a score moves
+  sharply for no reason you can feel in your hand, re-shoot the page before believing it.</p>
+</div>
+
+<h2 id="anatomy">2 · The anatomy of a written line</h2>
+<p>Every term the app uses comes from this diagram. The four horizontal lines are what the
+printable guide sheets draw.</p>
+<figure>
+<svg class="diagram" viewBox="0 0 400 130" role="img" aria-label="Diagram of ascender line, x-height line, baseline and descender line with the word handwriting">
+  <line x1="10" y1="24" x2="390" y2="24" stroke="#dfe4e9" stroke-width="1"/>
+  <line x1="10" y1="52" x2="390" y2="52" stroke="#c2c9d1" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="10" y1="90" x2="390" y2="90" stroke="#8d97a3" stroke-width="1.6"/>
+  <line x1="10" y1="112" x2="390" y2="112" stroke="#dfe4e9" stroke-width="1"/>
+  <text x="18" y="86" font-family="Georgia, serif" font-size="46" fill="#2a3340">handwriting</text>
+  <text x="396" y="27" text-anchor="end" font-size="9" fill="#8d97a3">ascender line</text>
+  <text x="396" y="49" text-anchor="end" font-size="9" fill="#8d97a3">x-height line</text>
+  <text x="396" y="101" text-anchor="end" font-size="9" fill="#8d97a3">baseline</text>
+  <text x="396" y="123" text-anchor="end" font-size="9" fill="#8d97a3">descender line</text>
+</svg>
+<figcaption>The <b>x-height</b> is the height of a letter with no ascender or descender — a, o, e, n.
+It is the number the guide sheets ask you for, in millimetres.</figcaption>
+</figure>
+<ul>
+  <li><b>Baseline</b> — the line letters sit on. <code>h</code>, <code>a</code>, <code>n</code> touch it; <code>g</code>, <code>y</code>, <code>p</code> hang below it.</li>
+  <li><b>x-height</b> — the body height. Adult handwriting is usually 4–8&nbsp;mm; children's and
+    new off-hand writing starts far bigger, and should.</li>
+  <li><b>Ascender</b> — the tall part of <code>b d f h k l t</code>. Traditionally about 1.5× the x-height.</li>
+  <li><b>Descender</b> — the tail of <code>g j p q y</code>.</li>
+  <li><b>Slant</b> — the angle of the vertical strokes. Anywhere from upright to about 20° forward
+    is normal and none of them is more correct than another.</li>
+</ul>
+
+<h2 id="metrics">3 · What each score measures</h2>
+<p>Every score is 0–100 and every one is about <b>consistency</b>, not beauty. The app cannot
+tell you your handwriting is attractive; it can tell you it is the same on line nine as on line one,
+which is most of what people mean when they call handwriting neat.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Score</th><th>What it actually measures</th><th>Raises it</th></tr></thead>
+  <tbody>
+    <tr><td><b>Slant steadiness</b></td>
+        <td>The spread of stroke angles across the page. It does <em>not</em> care what your angle is,
+            only that you keep picking the same one.</td>
+        <td>Slant rails, push-pull strokes</td></tr>
+    <tr><td><b>Baseline</b></td>
+        <td>How far the bottoms of letters scatter around the straight line fitted through them.
+            Descenders are trimmed out first so <code>g</code> and <code>y</code> don't count against you.</td>
+        <td>Ruled-line discipline, long-word landings</td></tr>
+    <tr><td><b>Size consistency</b></td>
+        <td>Variation in the height of each detected line of writing.</td>
+        <td>x-height rows, boxed letters</td></tr>
+    <tr><td><b>Spacing</b></td>
+        <td>Variation in the gaps between marks. In printing it reads letter gaps; in cursive,
+            where letters are joined, it reads the word gaps instead.</td>
+        <td>The 'o' gap, the minimum drill</td></tr>
+    <tr><td><b>Pen control</b></td>
+        <td>Variation in stroke width. Wildly varying width means pressure or speed is changing
+            mid-stroke — usually a grip that's too tight.</td>
+        <td>Even-pressure lines, loose-grip reset</td></tr>
+    <tr><td><b>Legibility</b></td>
+        <td>Optional. Runs OCR over the page and reports its confidence. A machine reading your
+            handwriting is a harsh, honest proxy for a stranger reading it.</td>
+        <td>One form per letter, cold read-back</td></tr>
+    <tr><td><b>Mirror match</b></td>
+        <td>Only in mirror-prime mode. How closely the copy line matches the line above it
+            in slant, size and steadiness.</td>
+        <td>Prime and copy</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="card">
+  <h3>Why Overall is only four of them</h3>
+  <p><b>Overall</b> averages slant steadiness, baseline, size and spacing — and deliberately nothing else.
+  Legibility needs OCR and is often absent; pen control was added later. Folding either into the average
+  would silently re-scale every score already in your history and make the trend line a lie.
+  So Overall means the same thing on your first page as on your hundredth.</p>
+</div>
+
+<h2 id="posture">4 · Posture, grip and paper</h2>
+<h3>Sit before you write</h3>
+<ul>
+  <li>Both feet flat. Back against the chair. Table at roughly elbow height.</li>
+  <li>Both forearms on the table — the non-writing hand anchors and moves the paper. If it is in
+    your lap, the page drifts and your baselines drift with it.</li>
+  <li>Eyes about 30&nbsp;cm from the page. Hunching closer is a sign the writing is too small.</li>
+</ul>
+<h3>Hold the pen loosely</h3>
+<p>The standard <b>dynamic tripod</b>: thumb and index finger pinch the barrel, it rests on the
+side of the middle finger, ring and little fingers curl under and glide on the page. Grip it just
+firmly enough that it doesn't fall out.</p>
+<p>A tight grip is the single most common cause of both uneven strokes and a hand that aches after
+half a page. The test: if someone could pull the pen out of your hand without a struggle, you're
+holding it about right.</p>
+<h3>Move the right joints</h3>
+<p>Letters are made by the fingers; <em>words</em> are made by the wrist; <em>lines</em> are made by the
+forearm and shoulder. People who write only from their fingers get tired fast and produce cramped,
+shrinking lines. The warm-up drills exist to remind the big joints they are involved.</p>
+
+<h2 id="left">5 · Writing with the left hand</h2>
+<p>A left hand writing left-to-right is doing a genuinely harder job than a right hand: it moves
+<em>into</em> the text it just wrote, covering it and dragging through wet ink, and it pushes strokes
+that a right hand pulls. Almost every left-handed handwriting problem traces back to one of those
+two facts, and the first is fixable in about ten seconds.</p>
+<div class="card tip">
+  <h3>Tilt the paper clockwise. That's the fix.</h3>
+  <p>Rotate the page 30–45° <b>clockwise</b>, so the bottom-right corner points toward your belly —
+  the mirror image of what a right-hander does. Now your hand sits <em>below</em> the writing line
+  instead of on top of it. You can see what you are writing, you stop smudging, and the hook posture
+  — wrist curled over the top of the line — becomes unnecessary.</p>
+  <p>Also: shift the paper to the left of your body's centre line, and hold the pen slightly further
+  up the barrel than a right-hander would, so your fingers don't block your view of the nib.</p>
+</div>
+<h3>The hook</h3>
+<p>Curling the wrist over the top of the line is a workaround for not being able to see past your
+own hand. It works, but it is slow, tiring, and hard on the wrist over years. If you already hook,
+re-tilting the paper removes the reason for it — but the habit will take a few weeks to fade, and
+it will feel wrong before it feels better.</p>
+<h3>Push versus pull</h3>
+<p>Cross-strokes and many joins are pushes for a left hand, which is why the line skips or digs in.
+Two mitigations: a pen that writes without pressure (rollerball, gel, fibre-tip — not a cheap
+ballpoint), and letting the letters be slightly more upright or even backward-leaning, which shortens
+the push.</p>
+<h3>Expect it to be slow</h3>
+<p>If you are training a genuinely new hand, the first weeks should look like a child's writing,
+because motorically that is exactly what it is. Go big — letters two to three lines tall — for the
+first couple of weeks. Size comes down on its own once control arrives. Trying to write small
+immediately is the most reliable way to build in a permanent tremor.</p>
+
+<h2 id="practice">6 · How to practise so it sticks</h2>
+<ul>
+  <li><b>Short and daily beats long and weekly.</b> Handwriting is motor learning. Fifteen minutes
+    six days a week will beat two hours on a Sunday, and it isn't close. The streak counter is not
+    a gimmick — it is the mechanism.</li>
+  <li><b>Slow before fast.</b> Speed comes back on its own once the movement is right. Practising
+    fast and sloppy rehearses fast and sloppy.</li>
+  <li><b>One target per session.</b> Pick the weakest score and work only on that. Trying to fix
+    slant, spacing and size in the same page usually fixes none of them.</li>
+  <li><b>Warm up.</b> Two minutes of loops and ovals before real writing measurably steadies
+    the first lines of the page.</li>
+  <li><b>Stop before the cramp.</b> Writing through hand fatigue rehearses a tense grip.</li>
+  <li><b>Photograph the same kind of page.</b> Comparing a careful drill sheet against a rushed
+    shopping list tells you about the situation, not about you. Keep one steady benchmark.</li>
+</ul>
+<div class="card">
+  <h3>Expect a plateau, and a dip</h3>
+  <p>Scores rise fast for two or three weeks, then flatten. That is normal — the easy structural
+  wins are used up and what remains is slower motor consolidation. A dip often follows a change you
+  deliberately made (a new slant, a smaller size), and it usually recovers past the old level within
+  a fortnight. Judge by the three-session average line, never by one page.</p>
+</div>
+
+<h2 id="fix">7 · Troubleshooting: symptom → fix</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>What you see</th><th>Usual cause</th><th>Do this</th></tr></thead>
+  <tbody>
+    <tr><td>Lines sag toward the right margin</td><td>Not moving the paper up as you go; writing from the fingers only</td><td>Ruled-line discipline; move the page with your other hand</td></tr>
+    <tr><td>Letters shrink across the page</td><td>Grip tightening as you tire</td><td>Loose-grip reset; shorter sessions</td></tr>
+    <tr><td>Slant score low but writing looks fine</td><td>You have two slants — usually one for slow careful words and one for fast ones</td><td>Slant rails; deliberate slant switching</td></tr>
+    <tr><td>Spacing score low in cursive</td><td>Word gaps too small — the words run together</td><td>The 'o' gap</td></tr>
+    <tr><td>Spacing score low in print</td><td>Uneven letter gaps, often after tall letters</td><td>The minimum drill</td></tr>
+    <tr><td>Pen control low</td><td>Death grip, or a ballpoint needing pressure</td><td>Loose-grip reset; switch to a gel or rollerball</td></tr>
+    <tr><td>Legibility low, everything else high</td><td>Consistent but ambiguous letterforms — <code>a/o</code>, <code>n/u</code>, <code>r/v</code> collapsing</td><td>One form per letter; cold read-back</td></tr>
+    <tr><td>Hand aches after half a page</td><td>Grip and finger-only movement</td><td>Air writing; loose-grip reset; warm up first</td></tr>
+    <tr><td>Left hand smudges everything</td><td>Paper not tilted; overwriter posture</td><td>Paper tilt setup; quick-drying pen</td></tr>
+    <tr><td>Scores jump around with no pattern</td><td>Inconsistent photos, not inconsistent writing</td><td>Re-read section 1</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="mirror">8 · Mirror priming</h2>
+<p>Mirror priming is the one technique here that is specific to training a second hand. You write a
+line with your <span class="hand-R">dominant</span> hand, then copy it immediately with the
+<span class="hand-L">other</span> hand on the line directly below.</p>
+<p>The point is that your dominant hand already knows what the movement should feel like, at what
+size and rhythm. Writing it first loads that target into working memory, and the copy has something
+concrete to imitate rather than a vague intention. The <b>Mirror match</b> score is how close the
+copy came.</p>
+<p>To make it work: alternate lines strictly — dominant, copy, dominant, copy — because the analyzer
+assumes that pattern. Write the dominant line slowly enough that the other hand can plausibly match
+its pace. And photograph the whole page in <b>Mirror prime</b> mode so both hands get scored from
+the same image.</p>
+
+<h2 id="faq">9 · Questions</h2>
+<h3>Does the app upload my pages anywhere?</h3>
+<p>No. All analysis runs in your browser. Nothing about a photo leaves the device — the image is
+never stored or transmitted. If you connect Google Drive, only your <em>scores</em> sync, into a
+private folder that only this app can see.</p>
+<h3>Why did OCR need the internet?</h3>
+<p>The OCR engine is a few megabytes and downloads on first use, then caches. Everything else works
+offline, including the drills and the printable sheets.</p>
+<h3>Can I use lined paper?</h3>
+<p>Yes, and you should while training baselines. Very dark printed lines can occasionally be
+detected as writing, so if the scores look strange on a heavily-ruled pad, try the app's own guide
+sheets, which are printed pale on purpose.</p>
+<h3>What pen should I use?</h3>
+<p>Anything that writes without pressure. A gel pen, rollerball or fibre-tip forces a lighter grip
+than a cheap ballpoint, which needs force to lay ink down and encourages exactly the tension you are
+trying to remove. This matters more for left hands, which push strokes.</p>
+<h3>How long until this works?</h3>
+<p>Legible improvement in an existing hand: two to four weeks of daily practice. A genuinely new
+off-hand: expect two months before it is comfortable, and to keep improving for a year. The eight-week
+left-hand program is built around that, not around a promise of a fortnight.</p>
+
+</main>
+</body>
+</html>

@@ -249,13 +249,18 @@
   .badge .n { font-size: 11px; font-weight: 600; margin-top: 3px; }
   .badge .d { font-size: 10px; color: var(--ink-muted); }
 
-  /* ---------- practice sheet overlay ---------- */
-  #sheet {
+  /* ---------- overlays: drill runner + session detail ---------- */
+  #sheet, #detail {
     position: fixed; inset: 0; z-index: 50; background: var(--page);
     display: none; flex-direction: column;
   }
-  #sheet.on { display: flex; }
-  #sheet .sheetbar {
+  #sheet.on, #detail.on { display: flex; }
+  #detail-body { flex: 1; overflow: auto; padding: 14px 14px 60px; }
+  #detail-body > div { max-width: 780px; margin: 0 auto; }
+  .delta { font-size: 12px; font-weight: 600; }
+  .delta.up { color: var(--good); } .delta.down, .delta.flat { color: var(--ink-muted); }
+  button.linky { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; text-align: left; }
+  #sheet .sheetbar, #detail .sheetbar {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-1);
     padding-top: max(10px, env(safe-area-inset-top));
@@ -286,6 +291,8 @@
   <div class="brand"><span class="mark">✍</span> Handwriting Helper</div>
   <div class="hdr-right">
     <span class="pill" id="hdr-streak"></span>
+    <a class="act" href="guide.html" title="Reference: photographing pages, the scores, posture, troubleshooting"
+       style="text-decoration:none;display:inline-block">?</a>
     <button class="act" id="theme-btn" title="Light / dark / system">◐</button>
   </div>
 </header>
@@ -343,6 +350,11 @@
 
 <!-- ============ PRACTICE ============ -->
 <section id="tab-practice" class="tab-panel">
+  <div class="card" id="program-card">
+    <div class="card-hd"><h2>Programs</h2><span class="pill hidden" id="program-week"></span></div>
+    <div id="program-body"></div>
+  </div>
+
   <div class="card">
     <div class="card-hd"><h2>Drill library</h2><span class="pill" id="drill-count"></span></div>
     <div class="fieldrow" style="margin-bottom:6px">
@@ -359,6 +371,7 @@
         <option value="baseline">Baseline</option>
         <option value="size">Size consistency</option>
         <option value="spacing">Spacing</option>
+        <option value="stroke">Pen control</option>
         <option value="legibility">Legibility</option>
         <option value="match">Mirror match</option>
         <option value="speed">Speed &amp; endurance</option>
@@ -447,6 +460,11 @@
   </div>
 
   <div class="card">
+    <div class="card-hd"><h2>This week vs last</h2><span class="d muted" style="font-size:12px" id="weekly-note"></span></div>
+    <div class="tablewrap"><table id="weekly"><tbody></tbody></table></div>
+  </div>
+
+  <div class="card">
     <div class="card-hd"><h2>Practice calendar</h2><span class="d muted" style="font-size:12px" id="heat-note"></span></div>
     <div class="heatwrap"><div class="heat" id="heat"></div></div>
     <div class="heatscale">
@@ -466,6 +484,7 @@
         <option value="baseline">Baseline</option>
         <option value="size">Size consistency</option>
         <option value="spacing">Spacing</option>
+        <option value="stroke">Pen control</option>
         <option value="legibility">Legibility (OCR)</option>
         <option value="match">Mirror match</option>
       </select>
@@ -512,6 +531,16 @@
 
 <!-- ============ SETUP ============ -->
 <section id="tab-setup" class="tab-panel">
+  <div class="card">
+    <h2>Reference</h2>
+    <p class="subline">How to photograph a page so the analysis is trustworthy, what each score
+      actually measures, posture and grip, the left-hand paper tilt, and a symptom-to-drill
+      troubleshooting table.</p>
+    <div class="fieldrow" style="margin-top:10px">
+      <a class="act primary" href="guide.html" style="text-decoration:none">Open the reference</a>
+    </div>
+  </div>
+
   <div class="card">
     <h2>Preferences</h2>
     <div class="fieldrow">
@@ -615,6 +644,15 @@
   </div>
 </div>
 
+<!-- one saved session, in full -->
+<div id="detail">
+  <div class="sheetbar">
+    <b id="detail-title" class="grow">Session</b>
+    <button class="act" id="detail-close">Close</button>
+  </div>
+  <div id="detail-body"></div>
+</div>
+
 <div id="tooltip"></div>
 <script>
 "use strict";
@@ -715,7 +753,18 @@ function rowStat(r, ink, W) {
     if (!col[x] && g0 < 0) g0 = x;
     else if (col[x] && g0 >= 0) { if (x - g0 >= 2) gaps.push(x - g0); g0 = -1; }
   }
-  return { height, slants, wobble, baseline, gaps };
+  // horizontal ink run-lengths — a scan line crossing a stroke measures its width,
+  // so the spread of these is how evenly you hold pressure and speed through a stroke
+  const runs = [];
+  for (let y = r.y0; y < r.y1; y++) {
+    let len = 0;
+    for (let x = 0; x < W; x++) {
+      if (ink[y * W + x]) len++;
+      else { if (len) runs.push(len); len = 0; }
+    }
+    if (len) runs.push(len);
+  }
+  return { height, slants, wobble, baseline, gaps, runs };
 }
 
 function spacingCvOf(gaps, style) {
@@ -743,6 +792,17 @@ function metricsFromRows(stats, style) {
     sizeCv = Math.sqrt(heights.reduce((a, b) => a + (b - meanHeight) ** 2, 0) / heights.length) / meanHeight;
   const spaceCv = spacingCvOf(stats.flatMap(s => s.gaps), style);
 
+  // pen control: spread of stroke widths. Long runs are horizontal strokes and joins
+  // rather than crossings, so cap at 40% of row height before measuring.
+  let strokeCv = null, strokeMed = null;
+  const runs = stats.flatMap(s => s.runs || []).filter(r => r <= 0.4 * meanHeight);
+  if (runs.length >= 20) {
+    const srt = [...runs].sort((a, b) => a - b);
+    strokeMed = srt[srt.length >> 1];
+    const m = runs.reduce((a, b) => a + b, 0) / runs.length;
+    strokeCv = Math.sqrt(runs.reduce((a, b) => a + (b - m) * (b - m), 0) / runs.length) / m;
+  }
+
   // ponytail: score constants are hand-tuned heuristics, recalibrate if scores feel off
   const scores = {
     slantC: slantSd == null ? null : clamp(100 - 6 * slantSd),
@@ -750,9 +810,12 @@ function metricsFromRows(stats, style) {
     size: sizeCv == null ? null : clamp(100 - 200 * sizeCv),
     spacing: spaceCv == null ? null : clamp(100 - 130 * spaceCv),
   };
-  const vals = Object.values(scores).filter(v => v != null);
+  // Overall is fixed to these four on purpose. Adding pen control to the average would
+  // silently re-scale every score already in your history and break the trend line.
+  const vals = ["slantC", "baseline", "size", "spacing"].map(k => scores[k]).filter(v => v != null);
   scores.overall = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-  return { meanSlant, slantSd, wobble, sizeCv, spaceCv, meanHeight, scores };
+  scores.stroke = strokeCv == null ? null : clamp(100 - 150 * strokeCv);
+  return { meanSlant, slantSd, wobble, sizeCv, spaceCv, strokeCv, strokeMed, meanHeight, scores };
 }
 
 // ponytail: match constants hand-tuned; compares slant, size, and steadiness of copy vs original
@@ -1064,7 +1127,8 @@ const mergeTombs = (a, b) => {
 //   kinds:  ruled · slant · grid · boxes · mirror · trace
 const METRIC_LABEL = {
   slantC: "Slant steadiness", baseline: "Baseline", size: "Size consistency",
-  spacing: "Spacing", legibility: "Legibility", match: "Mirror match", speed: "Speed & endurance",
+  spacing: "Spacing", stroke: "Pen control", legibility: "Legibility",
+  match: "Mirror match", speed: "Speed & endurance",
 };
 const PANGRAMS = [
   "The quick brown fox jumps over the lazy dog",
@@ -1081,18 +1145,29 @@ const DRILLS = [
   { id: "warm-waves", cat: "Warm-up", ic: "〰️", title: "Waves and zigzags", min: 2, targets: ["baseline", "speed"], hands: "both", styles: "both",
     how: "Alternate a line of smooth waves with a line of sharp zigzags, filling the x-height band exactly. This wakes up the wrist and teaches the hand where the ceiling and floor are.",
     sheet: { kind: "ruled" } },
-  { id: "warm-ovals", cat: "Warm-up", ic: "⭕", title: "Continuous ovals", min: 2, targets: ["size", "slantC"], hands: "both", styles: "both",
+  { id: "warm-ovals", cat: "Warm-up", ic: "⭕", title: "Continuous ovals", min: 2, targets: ["size", "slantC", "stroke"], hands: "both", styles: "both",
     how: "Draw overlapping ovals across the line without lifting — about 8 revolutions per oval, moving steadily right. Every oval leans at the same angle as the slant guides.",
     sheet: { kind: "slant" } },
-  { id: "warm-pushpull", cat: "Warm-up", ic: "⏸️", title: "Push-pull strokes", min: 2, targets: ["slantC"], hands: "both", styles: "both",
+  { id: "warm-pushpull", cat: "Warm-up", ic: "⏸️", title: "Push-pull strokes", min: 2, targets: ["slantC", "stroke"], hands: "both", styles: "both",
     how: "Straight downstrokes, evenly spaced, running the full height of the band. Match the slant rails exactly — this is the single fastest way to steady a wandering slant.",
     sheet: { kind: "slant" } },
   { id: "warm-air", cat: "Warm-up", ic: "🫱", title: "Air writing", min: 1, targets: ["speed"], hands: "both", styles: "both",
     how: "No paper. Write big letters in the air with a straight arm, from the shoulder — 30 seconds clockwise ovals, 30 seconds counter-clockwise, then your name three times. Loosens the grip before you sit down.",
     sheet: null },
 
+  // ---- pen control ----
+  { id: "pen-even", cat: "Pen control", ic: "🖊️", title: "Even-pressure lines", min: 3, targets: ["stroke"], hands: "both", styles: "both",
+    how: "Draw slow, straight lines the full width of the page, aiming for exactly the same darkness end to end. Most people press harder at the start and fade at the finish — watch for that and hold it level.",
+    sheet: { kind: "ruled" } },
+  { id: "pen-slowmo", cat: "Pen control", ic: "🐢", title: "Slow-motion letters", min: 4, targets: ["stroke", "slantC"], hands: "both", styles: "both",
+    how: "Write at a quarter of your normal speed — a single word should take ten seconds. Slow writing exposes every pressure change and hand tremor, and lets you correct them while they happen instead of afterwards.",
+    sheet: { kind: "ruled", text: "slow and even" } },
+  { id: "pen-grip", cat: "Pen control", ic: "🤏", title: "Loose-grip reset", min: 2, targets: ["stroke"], hands: "both", styles: "both",
+    how: "Hold the pen just tightly enough that it does not fall, then write a line. If your fingertips go white or your forearm aches, you are strangling it — a death grip is the most common cause of uneven strokes and of hands that tire after half a page.",
+    sheet: { kind: "ruled" } },
+
   // ---- slant ----
-  { id: "slant-rails", cat: "Slant", ic: "📐", title: "Slant rails", min: 3, targets: ["slantC"], hands: "both", styles: "both",
+  { id: "slant-rails", cat: "Slant", ic: "📐", title: "Slant rails", min: 3, targets: ["slantC", "stroke"], hands: "both", styles: "both",
     how: "Fill every line with ///// strokes riding the printed slant guides. Pick one angle and never vary it. Your slant score is a measure of consistency, not of angle — upright is perfectly fine as long as it is always upright.",
     sheet: { kind: "slant" } },
   { id: "slant-letters", cat: "Slant", ic: "📏", title: "Straight-stem letters", min: 4, targets: ["slantC", "size"], hands: "both", styles: "both",
@@ -1145,7 +1220,7 @@ const DRILLS = [
   { id: "cur-minimum", cat: "Cursive", ic: "〽️", title: "Cursive minimum", min: 4, targets: ["size", "spacing"], hands: "both", styles: "cursive",
     how: "'minimum' joined, without lifting once per word. Every hump the same width, every valley the same depth, every join the same angle.",
     sheet: { kind: "ruled", text: "minimum minimum minimum" } },
-  { id: "cur-chain", cat: "Cursive", ic: "⛓️", title: "Letter chains", min: 4, targets: ["slantC", "size"], hands: "both", styles: "cursive",
+  { id: "cur-chain", cat: "Cursive", ic: "⛓️", title: "Letter chains", min: 4, targets: ["slantC", "size", "stroke"], hands: "both", styles: "cursive",
     how: "Unbroken lines of mmmm, nnnn, oooo, eeee. Nothing to spell, nothing to think about — just rhythm and even pressure.",
     sheet: { kind: "slant", text: "mmmm nnnn oooo eeee" } },
   { id: "cur-caps", cat: "Cursive", ic: "🅰️", title: "Capital forms", min: 5, targets: ["legibility"], hands: "both", styles: "cursive",
@@ -1170,7 +1245,7 @@ const DRILLS = [
   { id: "left-big", cat: "Left hand", ic: "🔠", title: "Oversized letters", min: 5, targets: ["size", "baseline"], hands: "L", styles: "both",
     how: "Letters two to three lines tall for the whole page. A new hand has no fine motor control yet, so give it gross motor control first — the size comes down on its own after a week or two.",
     sheet: { kind: "ruled", xh: 14 } },
-  { id: "left-pull", cat: "Left hand", ic: "⬅️", title: "Pull-stroke alphabet", min: 5, targets: ["slantC", "legibility"], hands: "L", styles: "both",
+  { id: "left-pull", cat: "Left hand", ic: "⬅️", title: "Pull-stroke alphabet", min: 5, targets: ["slantC", "legibility", "stroke"], hands: "L", styles: "both",
     how: "A left hand pushes strokes a right hand pulls, which is why the line skips. Work the alphabet slowly, noting which strokes push, and re-order those letters to pull where you can.",
     sheet: { kind: "ruled", text: "abcdefghijklm nopqrstuvwxyz" } },
 
@@ -1201,6 +1276,77 @@ const DRILLS = [
     how: "Write half a page of unfamiliar text, put it away, and read it back tomorrow. Anything you stumble on is a letter shape to drill. Run the OCR check on it too — the engine is a harsh but honest reader.",
     sheet: { kind: "ruled", text: PANGRAMS[2] } },
 ];
+
+// ---------- multi-week programs ----------
+// A program is an ordered curriculum: while one is running it replaces the daily
+// plan generator, so the routine follows the syllabus instead of chasing whatever
+// metric happened to dip this week. Each week names a focus, its drills, and the
+// milestone that tells you the week actually landed.
+const PROGRAMS = [
+  { id: "left-scratch", ic: "🫲", title: "Left hand from scratch", hand: "L", style: "print", mode: "single",
+    blurb: "Eight weeks from 'I can't write with this hand' to a full legible page. Position first, then size, then control — in that order, because doing it the other way is why most people give up in week two.",
+    weeks: [
+      { focus: "Position before anything else", drills: ["warm-air", "left-tilt", "left-under", "left-big"],
+        milestone: "One page written with the wrist straight and the hand below the line." },
+      { focus: "Big, slow, from the shoulder", drills: ["warm-loops", "warm-waves", "left-big", "base-ruled"],
+        milestone: "A page of letters two to three lines tall that stay on the baseline." },
+      { focus: "Letter shapes, one form each", drills: ["print-alphabet", "size-xheight", "left-pull"],
+        milestone: "The full alphabet, every letter recognisable on its own." },
+      { focus: "Shrinking down", drills: ["size-shrink", "size-ascdesc", "base-ruled"],
+        milestone: "Letters half the height of week one, with the control kept." },
+      { focus: "Steadying the hand", drills: ["slant-rails", "warm-pushpull", "pen-slowmo"],
+        milestone: "Slant steadiness above 60 on an analyzed left-hand page." },
+      { focus: "Words, not letters", drills: ["space-oh", "space-minimum", "base-longwords"],
+        milestone: "A paragraph where the word gaps are even enough to read at a glance." },
+      { focus: "Writing you'd hand to someone", drills: ["leg-address", "print-numerals", "speed-pangram"],
+        milestone: "An addressed envelope and a shopping list you would actually use." },
+      { focus: "Endurance and proof", drills: ["endure-page", "speed-timed", "mirror-pairs"],
+        milestone: "A full page in one sitting, photographed and scored." },
+    ] },
+  { id: "neat-print", ic: "🔠", title: "Neater printing", hand: "R", style: "print", mode: "single",
+    blurb: "Six weeks on the four things that actually make print look tidy — line, size, slant and spacing — finishing with writing fast enough to use under pressure.",
+    weeks: [
+      { focus: "Hold the line", drills: ["warm-loops", "base-ruled", "base-longwords"],
+        milestone: "Baseline score above 75." },
+      { focus: "One height for everything", drills: ["size-xheight", "size-ascdesc", "size-boxes"],
+        milestone: "Size consistency above 75." },
+      { focus: "One angle for everything", drills: ["warm-pushpull", "slant-rails", "slant-letters"],
+        milestone: "Slant steadiness above 80." },
+      { focus: "Air between the words", drills: ["space-oh", "space-minimum", "space-columns"],
+        milestone: "Spacing above 75." },
+      { focus: "Committing to letterforms", drills: ["print-alphabet", "print-numerals", "size-shrink"],
+        milestone: "The same 'a', 'g' and 'k' shape on every line of a page." },
+      { focus: "Neat at speed", drills: ["speed-pangram", "leg-address", "speed-timed"],
+        milestone: "A timed page that still scores within 5 of your unhurried best." },
+    ] },
+  { id: "cursive-revival", ic: "✒️", title: "Cursive revival", hand: "R", style: "cursive", mode: "single",
+    blurb: "Six weeks to get joined-up writing back. Cursive is rhythm before it is letters, so the early weeks are deliberately mindless.",
+    weeks: [
+      { focus: "Rhythm first", drills: ["warm-loops", "warm-ovals", "cur-chain"],
+        milestone: "A full line of unbroken loops with even tops and bottoms." },
+      { focus: "The joins are the skill", drills: ["cur-joins", "cur-minimum", "pen-slowmo"],
+        milestone: "Every letter in a word written without lifting the pen." },
+      { focus: "Even height, even lean", drills: ["size-xheight", "slant-rails", "cur-chain"],
+        milestone: "Size consistency and slant steadiness both above 70." },
+      { focus: "Capitals that read", drills: ["cur-caps", "size-ascdesc", "base-ruled"],
+        milestone: "All 26 capitals legible out of context." },
+      { focus: "Words and gaps", drills: ["space-minimum", "space-oh", "base-longwords"],
+        milestone: "A paragraph of joined writing you can read back cold." },
+      { focus: "Fluency", drills: ["speed-pangram", "leg-selfread", "endure-page"],
+        milestone: "A page of cursive at conversational writing speed." },
+    ] },
+];
+const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.id, p]));
+const WEEK = 7 * 864e5;
+// Week number is derived from the start date, so the syllabus advances on its own —
+// no "mark week complete" button to forget. It stops at the last week rather than ending.
+function programState(rec, now = Date.now()) {
+  const prog = rec && PROGRAM_MAP[rec.id];
+  if (!prog) return null;
+  const elapsed = Math.floor((now - rec.startedAt) / WEEK);
+  const week = Math.max(1, Math.min(prog.weeks.length, elapsed + 1));
+  return { prog, week, plan: prog.weeks[week - 1], done: elapsed >= prog.weeks.length, elapsed };
+}
 
 const DRILL_MAP = Object.fromEntries(DRILLS.map(d => [d.id, d]));
 const CATEGORIES = [...new Set(DRILLS.map(d => d.cat))];
@@ -1283,7 +1429,7 @@ function sheetSvg(spec, opts = {}) {
 function weakestMetrics(sessions, hand, n = 2) {
   const recent = sessions.filter(s => s.kind !== "drill" && s.results?.[hand]).slice(-8);
   const avg = {};
-  for (const k of ["slantC", "baseline", "size", "spacing", "legibility"]) {
+  for (const k of ["slantC", "baseline", "size", "spacing", "stroke", "legibility"]) {
     const v = recent.map(s => s.results[hand][k]).filter(x => x != null);
     if (v.length) avg[k] = v.reduce((a, b) => a + b, 0) / v.length;
   }
@@ -1345,6 +1491,7 @@ const METRIC_TIP = {
   baseline: "Lines drift off the baseline — use lined paper, or a boldly-lined guide sheet under blank paper, and slow down at the ends of words.",
   size: "Letter size changes between lines — do x-height drills: rows of a, o, e written between two guide lines.",
   spacing: "Spacing is uneven — aim for a consistent gap about the width of an 'o' between words, tight and even between letters.",
+  stroke: "Stroke weight varies — you're changing pressure mid-letter. Hold the pen looser, keep the speed even, and let the pen's own weight do the work.",
 };
 const STYLE_TIP = {
   print: "Printing: pick one shape per letter and stick to it — consistency beats flair.",
@@ -1475,6 +1622,9 @@ function metricAvg(S, hand, key, lastN = 8) {
 let planCache = null;
 function planKey() { return dayKey(Date.now()) + "|" + prefs.hand + "|" + prefs.style + "|" + prefs.mode; }
 function loadPlan(S, reroll) {
+  // a running program owns the day — the syllabus is the plan
+  const ps = programState(loadProgram());
+  if (ps) return { key: planKey(), seed: 0, weak: [], ids: ps.plan.drills, program: ps };
   const saved = JSON.parse(localStorage.getItem("hwh-plan") || "null");
   if (!reroll && saved && saved.key === planKey()) return saved;
   const weak = weakestMetrics(S, prefs.hand);
@@ -1529,9 +1679,13 @@ function deltaFor(S, h) {
 function renderPlan(S) {
   const doneToday = new Set(S.filter(s => isDrill(s) && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
   const drills = planCache.ids.map(id => DRILL_MAP[id]).filter(Boolean);
-  $("plan-why").textContent = planCache.weak.length
-    ? `Aimed at your weakest ${handName(prefs.hand).toLowerCase()}-hand metrics: ${planCache.weak.map(k => METRIC_LABEL[k].toLowerCase()).join(" and ")}.`
-    : "A balanced starter routine — analyze a page and the plan starts targeting your weak spots.";
+  const ps = planCache.program;
+  $("plan-reroll").classList.toggle("hidden", !!ps); // a syllabus isn't yours to reshuffle
+  $("plan-why").textContent = ps
+    ? `${ps.prog.title} · week ${ps.week} of ${ps.prog.weeks.length} — ${ps.plan.focus}.`
+    : planCache.weak.length
+      ? `Aimed at your weakest ${handName(prefs.hand).toLowerCase()}-hand metrics: ${planCache.weak.map(k => METRIC_LABEL[k].toLowerCase()).join(" and ")}.`
+      : "A balanced starter routine — analyze a page and the plan starts targeting your weak spots.";
   $("plan-list").innerHTML = drills.map(d => `
     <button class="planitem${doneToday.has(d.id) ? " done" : ""}" data-drill="${d.id}">
       <span class="ic">${doneToday.has(d.id) ? "✓" : d.ic}</span>
@@ -1544,17 +1698,93 @@ function renderPlan(S) {
 }
 $("plan-reroll").onclick = () => { planCache = loadPlan(loadSessions(), true); renderPlan(loadSessions()); };
 
+// ---------- programs ----------
+const loadProgram = () => JSON.parse(localStorage.getItem("hwh-program") || "null");
+const saveProgram = p => p ? localStorage.setItem("hwh-program", JSON.stringify(p)) : localStorage.removeItem("hwh-program");
+
+function renderPrograms(S) {
+  const st = programState(loadProgram());
+  $("program-week").classList.toggle("hidden", !st);
+  if (!st) {
+    $("program-week").textContent = "";
+    $("program-body").innerHTML =
+      `<p class="subline">A program replaces your daily plan with an ordered syllabus and advances a week at a time. Pick one, or keep using the generated plan.</p>` +
+      `<div class="planlist" style="margin-top:10px">` + PROGRAMS.map(p => `
+        <button class="planitem" data-start="${p.id}">
+          <span class="ic">${p.ic}</span>
+          <span class="body"><span class="t">${esc(p.title)}</span>
+            <span class="s">${p.weeks.length} weeks · ${handName(p.hand).toLowerCase()} hand · ${esc(p.style)}</span>
+            <span class="s" style="margin-top:4px;color:var(--ink-2)">${esc(p.blurb)}</span></span>
+          <span class="chev">›</span>
+        </button>`).join("") + `</div>`;
+    $("program-body").querySelectorAll("[data-start]").forEach(b => b.onclick = () => {
+      const p = PROGRAM_MAP[b.dataset.start];
+      saveProgram({ id: p.id, startedAt: Date.now() });
+      // the syllabus assumes its own hand and style — switch to them so analysis matches
+      prefs.hand = p.hand; prefs.style = p.style; prefs.mode = p.mode;
+      syncOptions();
+      localStorage.removeItem("hwh-plan");
+      renderAll();
+    });
+    return;
+  }
+  const { prog, week, plan, done } = st;
+  $("program-week").textContent = done ? "Finished" : `Week ${week} of ${prog.weeks.length}`;
+  const doneToday = new Set(S.filter(s => isDrill(s) && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
+  $("program-body").innerHTML = `
+    <div class="hero"><span class="big">${prog.ic}</span><span class="sub"><b>${esc(prog.title)}</b><br>${esc(plan.focus)}</span></div>
+    <div class="bar"><i class="${done ? "done" : ""}" style="width:${Math.round(week / prog.weeks.length * 100)}%"></i></div>
+    <p class="subline"><b>This week's milestone:</b> ${esc(plan.milestone)}</p>
+    <div class="planlist" style="margin-top:10px">` +
+    plan.drills.map(id => DRILL_MAP[id]).filter(Boolean).map(d => `
+      <button class="planitem${doneToday.has(d.id) ? " done" : ""}" data-drill="${d.id}">
+        <span class="ic">${doneToday.has(d.id) ? "✓" : d.ic}</span>
+        <span class="body"><span class="t">${esc(d.title)}</span><span class="s">${d.min} min · ${esc(d.cat)}</span></span>
+        <span class="chev">›</span>
+      </button>`).join("") + `</div>
+    <div class="fieldrow" style="margin-top:12px">
+      <button class="act" id="program-prev">‹ Previous week</button>
+      <button class="act" id="program-next">Next week ›</button>
+      <button class="act" id="program-quit">Leave program</button>
+    </div>
+    <p class="subline muted">Weeks advance on their own, seven days at a time. Nudge it if you moved faster or slower than the calendar.</p>`;
+  bindDrillButtons("program-body");
+  // shifting the start date is what moves the week — keeps one source of truth
+  const shift = delta => {
+    const rec = loadProgram();
+    rec.startedAt = Math.min(Date.now(), rec.startedAt - delta * WEEK);
+    saveProgram(rec);
+    localStorage.removeItem("hwh-plan");
+    renderAll();
+  };
+  $("program-next").onclick = () => shift(1);
+  $("program-prev").onclick = () => shift(-1);
+  $("program-quit").onclick = e => {
+    if (e.target.textContent !== "Sure?") { e.target.textContent = "Sure?"; return; }
+    saveProgram(null);
+    localStorage.removeItem("hwh-plan");
+    renderAll();
+  };
+}
+
 // ---------- PRACTICE ----------
 function renderPractice(S) {
+  renderPrograms(S);
   const cat = $("drill-cat").value, hand = $("drill-hand").value, target = $("drill-target").value;
   const list = DRILLS.filter(d =>
     (cat === "all" || d.cat === cat) &&
     (hand === "any" || d.hands === "both" || d.hands === hand) &&
     (target === "all" || d.targets.includes(target)));
   $("drill-count").textContent = `${list.length} of ${DRILLS.length}`;
-  $("drill-grid").innerHTML = list.map(d => `
+  const byDrill = {};
+  for (const s of S) if (isDrill(s) && s.drillId) (byDrill[s.drillId] ||= []).push(s.t);
+  $("drill-grid").innerHTML = list.map(d => {
+    const l = byDrill[d.id];
+    const hist = l ? `done ${l.length}× · last ${fmtDate(Math.max(...l))}` : "not tried yet";
+    return `
     <div class="drill">
       <h4>${d.ic} ${esc(d.title)}</h4>
+      <div class="d muted" style="font-size:11px">${hist}</div>
       <div class="meta">
         <span class="tag">${d.min} min</span>
         ${d.hands !== "both" ? `<span class="tag ${d.hands}">${handName(d.hands)} hand</span>` : ""}
@@ -1563,7 +1793,8 @@ function renderPractice(S) {
       </div>
       <p class="why">${esc(d.how)}</p>
       <div class="row"><button class="act" data-drill="${d.id}">Start</button></div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   bindDrillButtons("drill-grid");
 
   const logs = S.filter(isDrill).slice().reverse();
@@ -1657,7 +1888,11 @@ function paintSheet() {
 for (const id of ["sheet-lines", "sheet-xh", "sheet-slant"]) $(id).oninput = paintSheet;
 $("sheet-print").onclick = () => print();
 $("sheet-close").onclick = () => { stopTimer(); $("sheet").classList.remove("on"); };
-addEventListener("keydown", e => { if (e.key === "Escape" && $("sheet").classList.contains("on")) $("sheet-close").click(); });
+addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if ($("detail").classList.contains("on")) $("detail").classList.remove("on");
+  else if ($("sheet").classList.contains("on")) $("sheet-close").click();
+});
 $("run-log").onclick = () => {
   if (!runDrill) return;
   const mins = Math.max(1, Math.min(240, +$("run-min").value || runDrill.min));
@@ -1681,6 +1916,7 @@ function renderProgress(S, st) {
     [metricAvg(S, "L", "overall") ?? "–", "Left average", "last 8 pages", sparkline(S, "L")],
   ].map(([v, l, d, sp]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div><div class="d">${d}</div>${sp || ""}</div>`).join("");
 
+  renderWeekly(S);
   drawHeat(S);
   drawTrend(S);
 
@@ -1696,13 +1932,102 @@ function renderProgress(S, st) {
   $("histtable").querySelector("tbody").innerHTML = [...pages].reverse().map(s => {
     const hands = Object.keys(s.results).sort().reverse().map(h =>
       `<span style="color:${h === "R" ? "var(--right)" : "var(--left)"}">${h} ${s.results[h].overall ?? "–"}</span>`).join(" · ");
-    return `<tr><td>${new Date(s.t).toLocaleDateString()}</td><td>${Object.keys(s.results).sort().reverse().join("+")}</td>
+    return `<tr><td><button class="linky" data-detail="${s.id}">${new Date(s.t).toLocaleDateString()}</button></td><td>${Object.keys(s.results).sort().reverse().join("+")}</td>
       <td>${esc(s.style)}</td><td>${s.mode === "mirror" ? "mirror" + (s.match != null ? ` ${s.match}%` : "") : "single"}</td>
       <td>${s.durationMin ?? "–"}</td><td>${hands}</td>
       <td><button data-del="${s.id}" title="Delete session">✕</button></td></tr>`;
   }).join("");
   bindDeletes("histtable");
+  $("histtable").querySelectorAll("[data-detail]").forEach(b => b.onclick = () => openDetail(b.dataset.detail));
+  $("hist-note").textContent += pages.length ? " · tap a date for the full breakdown" : "";
 }
+// this calendar week against the one before it — the horizon people actually plan on
+function weeklyRows(S, now = Date.now()) {
+  const ws = weekStart(now), ls = ws - 7 * DAY;
+  const slice = (a, b) => S.filter(s => s.t >= a && s.t < b);
+  const cur = slice(ws, now + DAY), prev = slice(ls, ws);
+  const mins = a => a.reduce((x, s) => x + (s.durationMin || 0), 0);
+  const avg = (a, h) => {
+    const v = a.filter(s => !isDrill(s) && s.results?.[h]?.overall != null).map(s => s.results[h].overall);
+    return v.length ? Math.round(v.reduce((x, y) => x + y, 0) / v.length) : null;
+  };
+  return [
+    { label: "Minutes practised", now: mins(cur), was: mins(prev), unit: "" },
+    { label: "Pages analyzed", now: cur.filter(s => !isDrill(s)).length, was: prev.filter(s => !isDrill(s)).length, unit: "" },
+    { label: "Drills logged", now: cur.filter(isDrill).length, was: prev.filter(isDrill).length, unit: "" },
+    { label: "Days practised", now: new Set(cur.map(s => dayKey(s.t))).size, was: new Set(prev.map(s => dayKey(s.t))).size, unit: "" },
+    { label: "Right-hand average", now: avg(cur, "R"), was: avg(prev, "R"), unit: "" },
+    { label: "Left-hand average", now: avg(cur, "L"), was: avg(prev, "L"), unit: "" },
+  ];
+}
+function renderWeekly(S) {
+  const rows = weeklyRows(S);
+  $("weekly-note").textContent = "week starts Monday";
+  $("weekly").querySelector("tbody").innerHTML =
+    `<tr><th>Measure</th><th>This week</th><th>Last week</th><th>Change</th></tr>` +
+    rows.map(r => {
+      const d = r.now != null && r.was != null ? r.now - r.was : null;
+      const chip = d == null || d === 0 ? `<span class="muted">—</span>`
+        : `<span class="delta ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${d}</span>`;
+      return `<tr><td>${r.label}</td><td><b>${r.now ?? "–"}</b></td><td class="muted">${r.was ?? "–"}</td><td>${chip}</td></tr>`;
+    }).join("");
+}
+
+// ---------- one session, in full ----------
+function openDetail(id, S = loadSessions()) { // S injectable so the self-test never touches saved data
+  const s = S.find(x => x.id === id);
+  if (!s?.results) return;
+  $("detail-title").textContent = new Date(s.t).toLocaleDateString(undefined,
+    { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const keys = ["overall", "slantC", "baseline", "size", "spacing", "stroke", "legibility"];
+  const label = k => k === "overall" ? "Overall" : METRIC_LABEL[k] || k;
+  // the previous page that scored this same hand — what "vs last" compares against
+  const prevFor = h => S.filter(x => x.t < s.t && !isDrill(x) && x.results?.[h]).slice(-1)[0];
+  const block = h => {
+    const r = s.results[h];
+    if (!r) return "";
+    const prev = prevFor(h), p = prev?.results?.[h];
+    const tiles = keys.filter(k => r[k] != null).map(k => {
+      const d = p?.[k] != null ? r[k] - p[k] : null;
+      const dh = d == null ? `<div class="d">no earlier page</div>`
+        : `<div class="delta ${d > 0 ? "up" : d < 0 ? "down" : "flat"}">${d > 0 ? "+" : ""}${d} vs ${fmtDate(prev.t)}</div>`;
+      return `<div class="tile"><div class="v">${r[k]}</div><div class="l">${label(k)}</div>${dh}</div>`;
+    }).join("");
+    return `<h3 style="color:var(--${h === "R" ? "right" : "left"})">${handName(h)} hand</h3><div class="tiles">${tiles}</div>`;
+  };
+  const weak = ["slantC", "baseline", "size", "spacing", "stroke"]
+    .filter(k => Object.values(s.results).some(r => r[k] != null))
+    .sort((a, b) => Math.min(...Object.values(s.results).map(r => r[a] ?? 101)) -
+                    Math.min(...Object.values(s.results).map(r => r[b] ?? 101)))[0];
+  // aim the suggestion at whichever hand actually scored worse on that metric
+  const weakHand = weak
+    ? Object.keys(s.results).sort((a, b) => (s.results[a][weak] ?? 101) - (s.results[b][weak] ?? 101))[0]
+    : null;
+  const sug = weak && suggestFor(weak, weakHand, s.style);
+  $("detail-body").innerHTML = `<div>
+    <div class="card">
+      <div class="fieldrow" style="margin:0">
+        <span class="pill">${esc(s.style)}</span>
+        <span class="pill">${s.mode === "mirror" ? "mirror prime" : "single hand"}</span>
+        ${s.durationMin ? `<span class="pill">${s.durationMin} min</span>` : ""}
+        ${s.match != null ? `<span class="pill hot">${s.match}% mirror match</span>` : ""}
+      </div>
+    </div>
+    <div class="card">${block("R")}${block("L")}</div>
+    ${weak ? `<div class="card"><h2>Weakest here: ${label(weak)}</h2>
+      <p class="subline">${esc(METRIC_TIP[weak] || "")}</p>
+      ${sug ? `<div class="fieldrow" style="margin-top:10px"><button class="act primary" data-drill="${sug.id}">${sug.ic} ${esc(sug.title)} · ${sug.min} min</button></div>` : ""}
+      </div>` : ""}
+  </div>`;
+  $("detail-body").querySelectorAll("[data-drill]").forEach(b => b.onclick = () => {
+    $("detail").classList.remove("on");
+    openDrill(b.dataset.drill);
+  });
+  $("detail").classList.add("on");
+  $("detail-body").scrollTop = 0;
+}
+$("detail-close").onclick = () => $("detail").classList.remove("on");
+
 function bindDeletes(rootId) {
   $(rootId).querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
     // ponytail: two-tap confirm — confirm() is silently blocked in sandboxed iframes
@@ -1735,7 +2060,7 @@ function sparkline(S, hand) {
 // (Deliberately not a radar — radar distorts area and makes 5 unrelated 0-100 scales
 //  look like a shape you can compare; bars just read left to right.)
 function drawProfile(S) {
-  const keys = ["slantC", "baseline", "size", "spacing", "legibility"];
+  const keys = ["slantC", "baseline", "size", "spacing", "stroke", "legibility"];
   const rows = keys.map(k => ({ k, label: METRIC_LABEL[k], R: metricAvg(S, "R", k), L: metricAvg(S, "L", k) }))
     .filter(r => r.R != null || r.L != null);
   $("profile-empty").classList.toggle("hidden", rows.length > 0);
@@ -1907,6 +2232,7 @@ function tilesHtml(m, weakest) {
     ["baseline", "Baseline", m.wobble == null ? "–" : `wobble ${(m.wobble * 100).toFixed(0)}%`],
     ["size", "Size consistency", m.sizeCv == null ? "need 2+ lines" : `±${(m.sizeCv * 100).toFixed(0)}%`],
     ["spacing", "Spacing", m.spaceCv == null ? "need more words" : `±${(m.spaceCv * 100).toFixed(0)}%`],
+    ["stroke", "Pen control", m.strokeCv == null ? "need more ink" : `stroke ±${(m.strokeCv * 100).toFixed(0)}%`],
   ];
   return `<div class="tiles">` + meta.map(([k, label, det]) => `
     <div class="tile${k === weakest ? " weak" : ""}">
@@ -1916,7 +2242,7 @@ function tilesHtml(m, weakest) {
 }
 const weakestOf = m => {
   let w = null;
-  for (const k of ["slantC", "baseline", "size", "spacing"])
+  for (const k of ["slantC", "baseline", "size", "spacing", "stroke"])
     if (m.scores[k] != null && (w == null || m.scores[k] < m.scores[w])) w = k;
   return w;
 };
@@ -2246,6 +2572,33 @@ if (location.search.includes("selftest")) {
   pass = check("sync: deleted session stays deleted", mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]).length === 0) && pass;
   pass = check("sync: tombstones dedupe", mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]).length === 2) && pass;
 
+  // --- pen control metric ---
+  const sc = up.metrics.scores;
+  pass = check("stroke: scored 0-100, got " + sc.stroke, sc.stroke == null || (sc.stroke >= 0 && sc.stroke <= 100)) && pass;
+  pass = check("stroke: median width measured", up.metrics.strokeMed == null || up.metrics.strokeMed > 0) && pass;
+  // regression: pen control must stay OUT of overall or every historical score shifts
+  const four = ["slantC", "baseline", "size", "spacing"].map(k => sc[k]).filter(v => v != null);
+  pass = check("stroke: overall still averages only the original four, got " + sc.overall,
+    sc.overall === Math.round(four.reduce((a, b) => a + b, 0) / four.length)) && pass;
+
+  // --- programs ---
+  pass = check("programs: ids unique", new Set(PROGRAMS.map(p => p.id)).size === PROGRAMS.length) && pass;
+  pass = check("programs: every week names drills that exist",
+    PROGRAMS.every(p => p.weeks.every(w => w.drills.every(id => DRILL_MAP[id])))) && pass;
+  pass = check("programs: every drill fits the program's hand and style",
+    PROGRAMS.every(p => p.weeks.every(w => w.drills.every(id => drillFits(DRILL_MAP[id], p.hand, p.style))))) && pass;
+  pass = check("programs: every week has a focus and a milestone",
+    PROGRAMS.every(p => p.weeks.every(w => w.focus && w.milestone && w.drills.length >= 3))) && pass;
+  const pnow = Date.now(), rec = { id: "neat-print", startedAt: pnow };
+  pass = check("programs: day one is week 1", programState(rec, pnow).week === 1) && pass;
+  pass = check("programs: day 8 is week 2", programState(rec, pnow + 8 * DAY).week === 2) && pass;
+  pass = check("programs: day 7 is still week 1", programState(rec, pnow + 6.9 * DAY).week === 1) && pass;
+  const late = programState(rec, pnow + 400 * DAY);
+  pass = check("programs: caps at the last week, got " + late.week, late.week === PROGRAM_MAP["neat-print"].weeks.length) && pass;
+  pass = check("programs: overrun reads as finished", late.done === true) && pass;
+  pass = check("programs: unknown id is not a program", programState({ id: "nope", startedAt: pnow }) === null) && pass;
+  pass = check("programs: no record is not a program", programState(null) === null) && pass;
+
   // --- drill catalog ---
   pass = check("drills: catalog non-trivial, got " + DRILLS.length, DRILLS.length >= 25) && pass;
   pass = check("drills: ids unique", new Set(DRILLS.map(d => d.id)).size === DRILLS.length) && pass;
@@ -2333,6 +2686,43 @@ if (location.search.includes("selftest")) {
   pass = check("stats: empty history is safe", deriveStats([]).streak === 0 && deriveStats([]).best === -1) && pass;
   pass = check("stats: metric average over pages, got " + metricAvg(stS, "R", "overall"), metricAvg(stS, "R", "overall") === 79) && pass;
   pass = check("stats: drills never enter score averages", metricAvg(stS, "L", "overall") === 40) && pass;
+
+  // --- weekly review ---
+  const ws = weekStart(Date.now());
+  const wSess = [
+    { id: "w1", t: ws + 36e5, kind: "page", style: "print", durationMin: 20, results: { R: { overall: 80 } } },
+    { id: "w2", t: ws - 3 * DAY, kind: "drill", drillId: "warm-loops", durationMin: 10 },
+    { id: "w3", t: ws - 2 * DAY, kind: "page", style: "print", durationMin: 30, results: { R: { overall: 60 } } },
+  ];
+  const wr = weeklyRows(wSess, ws + 4 * DAY);
+  const row = n => wr.find(r => r.label === n);
+  pass = check("weekly: this week's minutes, got " + row("Minutes practised").now, row("Minutes practised").now === 20) && pass;
+  pass = check("weekly: last week's minutes, got " + row("Minutes practised").was, row("Minutes practised").was === 40) && pass;
+  pass = check("weekly: drills counted separately from pages",
+    row("Drills logged").now === 0 && row("Drills logged").was === 1 && row("Pages analyzed").was === 1) && pass;
+  pass = check("weekly: hand average improved 60 -> 80",
+    row("Right-hand average").now === 80 && row("Right-hand average").was === 60) && pass;
+  pass = check("weekly: a hand with no pages reads blank", row("Left-hand average").now === null) && pass;
+  pass = check("weekly: empty history doesn't throw", weeklyRows([]).every(r => r.now === 0 || r.now === null)) && pass;
+
+  // --- session detail ---
+  const dSess = [
+    { id: "d1", t: Date.now() - 3 * DAY, kind: "page", style: "print", mode: "single", results: { R: { overall: 60, slantC: 55, baseline: 65, size: 60, spacing: 58, stroke: 70 } } },
+    { id: "d2", t: Date.now(), kind: "page", style: "print", mode: "single", durationMin: 12, results: { R: { overall: 70, slantC: 65, baseline: 75, size: 70, spacing: 68, stroke: 72 } } },
+  ];
+  openDetail("d2", dSess);
+  pass = check("detail: opens", $("detail").classList.contains("on")) && pass;
+  pass = check("detail: a tile per scored metric, got " + $("detail-body").querySelectorAll(".tile").length,
+    $("detail-body").querySelectorAll(".tile").length === 6) && pass;
+  pass = check("detail: shows the change against the previous page",
+    $("detail-body").textContent.includes("+10")) && pass;
+  pass = check("detail: names the weakest metric", $("detail-body").textContent.includes("Slant steadiness")) && pass;
+  pass = check("detail: offers a drill for it", $("detail-body").querySelector("[data-drill]") != null) && pass;
+  openDetail("d1", dSess);
+  pass = check("detail: the earliest page has nothing to compare to",
+    $("detail-body").textContent.includes("no earlier page")) && pass;
+  pass = check("detail: an unknown id changes nothing", (openDetail("nope", dSess), true)) && pass;
+  $("detail").classList.remove("on");
 
   // --- badges ---
   pass = check("badges: ids unique", new Set(BADGES.map(b => b.id)).size === BADGES.length) && pass;
