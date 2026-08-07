@@ -89,8 +89,10 @@
       background: var(--surface-1);
     }
     .tabs button { flex: 1; font-size: 11px; padding: 8px 4px; border-radius: 8px; }
-    /* a card's side-note gets its own line rather than squeezing the heading to two */
-    .card-hd > span { flex-basis: 100%; }
+    /* a card's side-NOTE gets its own line rather than squeezing the heading to two;
+       a pill is a short chip and must keep its own width, not stretch across */
+    .card-hd > span:not(.pill) { flex-basis: 100%; }
+    .card-hd > .pill { align-self: flex-start; }
   }
 
   .tab-panel { display: none; }
@@ -253,6 +255,9 @@
   .cmp figcaption { font-size: 12px; color: var(--ink-2); margin-top: 6px; }
   .cmp figcaption b { font-size: 19px; color: var(--ink-1); }
 
+  .card.proj h2 { font-size: 17px; }
+  .card.proj .tile .v { font-size: 21px; }
+
   .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
   .badge { text-align: center; padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-1); }
   .badge.locked { opacity: .38; }
@@ -312,6 +317,7 @@
   <button data-tab="today">Today</button>
   <button data-tab="practice">Practice</button>
   <button data-tab="analyze">Analyze</button>
+  <button data-tab="projects">Projects</button>
   <button data-tab="progress">Progress</button>
   <button data-tab="setup">Setup</button>
 </nav>
@@ -477,6 +483,11 @@
         <label><input type="radio" name="dsrc" value="custom"> Custom <input type="date" id="custom-date"></label>
       </div>
       <div class="fieldrow">
+        <span class="flab">Project</span>
+        <select id="save-project" style="min-width:170px"></select>
+        <span class="d">what you were writing</span>
+      </div>
+      <div class="fieldrow">
         <span class="flab">Time to fill page</span>
         <input type="number" id="dur" min="1" max="600" style="width:70px"> min
         <button class="act" id="ocr-btn">Read page (OCR)</button>
@@ -497,6 +508,48 @@
     <p class="subline" id="drive-status"></p>
     <div id="drive-list"></div>
   </details>
+</section>
+
+<!-- ============ PROJECTS ============ -->
+<section id="tab-projects" class="tab-panel">
+  <div class="card">
+    <div class="card-hd"><h2>Projects</h2><span class="pill" id="proj-count"></span></div>
+    <p class="subline">Group your pages by what you were actually writing — a book you're copying out,
+      a journal, a course workbook. Pages you don't file stay under Unfiled.</p>
+    <details id="proj-new" style="margin-top:12px">
+      <summary>New project</summary>
+      <div class="fieldrow" style="margin-top:10px">
+        <span class="flab">Name</span>
+        <input type="text" id="np-name" placeholder="Moby-Dick, morning pages, Spencerian workbook…" style="flex:1;min-width:180px">
+      </div>
+      <div class="fieldrow">
+        <span class="flab">Kind</span>
+        <select id="np-kind">
+          <option value="book">Book</option>
+          <option value="journal">Journal</option>
+          <option value="course">Course</option>
+          <option value="other">Other material</option>
+        </select>
+        <span class="flab">By</span>
+        <input type="text" id="np-author" placeholder="author (optional)" style="min-width:130px">
+        <span class="flab">Pages</span>
+        <input type="number" id="np-target" min="1" max="9999" placeholder="goal" style="width:78px">
+      </div>
+      <div class="fieldrow">
+        <button class="act primary" id="np-add">Create project</button>
+        <span class="d" id="np-status"></span>
+      </div>
+    </details>
+  </div>
+
+  <div id="proj-list"></div>
+
+  <div class="card hidden" id="proj-archived-card">
+    <details>
+      <summary id="proj-archived-sum">Archived</summary>
+      <div id="proj-archived" style="margin-top:10px"></div>
+    </details>
+  </div>
 </section>
 
 <!-- ============ PROGRESS ============ -->
@@ -562,6 +615,7 @@
         <option value="30">Last 30 days</option>
         <option value="90">Last 90 days</option>
       </select>
+      <select id="chart-project"></select>
     </div>
     <div class="legend" id="legend">
       <span><span class="chip" style="background:var(--right)"></span>Right hand</span>
@@ -580,7 +634,7 @@
     <div class="card-hd"><h2>History</h2><span class="d muted" style="font-size:12px" id="hist-note"></span></div>
     <div class="tablewrap">
       <table id="histtable" class="hidden">
-        <thead><tr><th>Date</th><th>Hand</th><th>Style</th><th>Mode</th><th>Min</th><th>Overall</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Project</th><th>Hand</th><th>Style</th><th>Mode</th><th>Min</th><th>Overall</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1086,17 +1140,22 @@ async function driveSync({ silent = false } = {}) {
   await driveAuth(SCOPE_SYNC, { silent });
   if (!driveAcct) await fetchAccount();
   const found = await syncFind();
-  let remote = { sessions: [], deleted: [] };
+  let remote = { sessions: [], deleted: [], projects: [], projDeleted: [] };
   if (found) {
     const r = await driveGet("files/" + found.id, { alt: "media" }, SCOPE_SYNC);
     const j = await r.json().catch(() => null);
-    if (j && Array.isArray(j.sessions)) remote = j;
+    // a v2 bundle predates projects; the missing fields default to empty and local ones survive
+    if (j && Array.isArray(j.sessions)) remote = { projects: [], projDeleted: [], ...j };
   }
   const merged = mergeSessions(loadSessions(), remote.sessions, [...loadTombs(), ...(remote.deleted || [])]);
   const deleted = mergeTombs(loadTombs(), remote.deleted || []);
+  const projDeleted = mergeTombs(loadProjTombs(), remote.projDeleted || []);
+  const projects = mergeProjects(loadProjects(), remote.projects, projDeleted);
   saveSessions(merged);
+  saveProjects(projects);
   localStorage.setItem(TOMB_KEY, JSON.stringify(deleted));
-  await syncUpload({ v: 2, savedAt: Date.now(), sessions: merged, deleted }, found?.id);
+  localStorage.setItem(PROJ_TOMB_KEY, JSON.stringify(projDeleted));
+  await syncUpload({ v: 3, savedAt: Date.now(), sessions: merged, deleted, projects, projDeleted }, found?.id);
   DRIVE.linked = true;
   DRIVE.syncedAt = Date.now();
   saveDrive();
@@ -1172,6 +1231,45 @@ function mergeSessions(local, remote, tombs) {
   for (const s of [...remote, ...local]) if (s?.id && !dead.has(s.id)) byId.set(s.id, s);
   return [...byId.values()].sort((a, b) => a.t - b.t).slice(-500);
 }
+// ---------- projects ----------
+// What a page BELONGS to: a book you're copying out, a journal, a course workbook.
+// Sessions carry projectId and an absent one simply means unfiled, so every page saved
+// before projects existed stays valid and needs no migration.
+const PROJ_KEY = "hwh-projects", PROJ_TOMB_KEY = "hwh-proj-deleted";
+const PROJECT_KINDS = { book: "Book", journal: "Journal", course: "Course", other: "Other material" };
+const PROJECT_IC = { book: "📕", journal: "📓", course: "🎓", other: "📄" };
+const jparse = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || d); } catch (e) { return JSON.parse(d); } };
+const loadProjects = () => jparse(PROJ_KEY, "[]");
+const saveProjects = p => localStorage.setItem(PROJ_KEY, JSON.stringify(p.slice(-200)));
+const loadProjTombs = () => jparse(PROJ_TOMB_KEY, "[]");
+// union by id, local wins ties, tombstones win deletes — same contract as sessions
+function mergeProjects(local, remote, tombs) {
+  const dead = new Set((tombs || []).map(t => t.id));
+  const byId = new Map();
+  for (const p of [...(remote || []), ...(local || [])]) if (p?.id && !dead.has(p.id)) byId.set(p.id, p);
+  return [...byId.values()].sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+}
+// Everything a project page needs to show, derived rather than stored — a counter kept
+// in the project record would drift the moment a session is deleted or arrives by sync.
+function projectStats(proj, S) {
+  const pages = S.filter(s => !isDrill(s) && s.projectId === proj.id);
+  const ts = pages.map(s => s.t);
+  const avg = h => {
+    const v = pages.map(s => s.results?.[h]?.overall).filter(x => x != null);
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
+  };
+  return {
+    pages: pages.length,
+    minutes: pages.reduce((a, s) => a + (s.durationMin || 0), 0),
+    first: ts.length ? Math.min(...ts) : null,
+    last: ts.length ? Math.max(...ts) : null,
+    days: new Set(pages.map(s => dayKey(s.t))).size,
+    best: Math.max(-1, ...pages.flatMap(s => Object.values(s.results || {}).map(r => r.overall ?? -1))),
+    avgR: avg("R"), avgL: avg("L"),
+    pct: proj.targetPages ? Math.min(100, Math.round(pages.length / proj.targetPages * 100)) : null,
+  };
+}
+
 // ponytail: keep the 200 most recent tombstones — older deletes can't resurface in practice
 const mergeTombs = (a, b) => {
   const m = new Map();
@@ -2009,6 +2107,134 @@ $("run-log").onclick = () => {
   if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
 };
 
+// ---------- PROJECTS ----------
+const projById = (id, ps = loadProjects()) => ps.find(p => p.id === id) || null;
+// Fills any <select> of projects. `blank` is the label for "no project", which is a real
+// choice rather than an empty state — most practice pages aren't part of anything.
+function fillProjectSelect(el, selected, blank) {
+  const ps = loadProjects();
+  const live = ps.filter(p => !p.archivedAt || p.id === selected);
+  el.innerHTML = `<option value="">${blank}</option>` + live.map(p =>
+    `<option value="${p.id}"${p.id === selected ? " selected" : ""}>${PROJECT_IC[p.kind] || "📄"} ${esc(p.name)}${p.archivedAt ? " (archived)" : ""}</option>`).join("");
+}
+function projectCard(p, S, archived) {
+  const st = projectStats(p, S);
+  const pages = S.filter(s => !isDrill(s) && s.projectId === p.id).slice().reverse();
+  const meta = [PROJECT_KINDS[p.kind] || "Material", p.author && "by " + p.author].filter(Boolean).join(" · ");
+  const range = st.first
+    ? `${fmtDate(st.first)} – ${fmtDate(st.last)} · ${st.days} day${st.days === 1 ? "" : "s"}`
+    : "nothing filed here yet";
+  return `<div class="card proj" data-proj="${p.id}">
+    <div class="card-hd">
+      <h2>${PROJECT_IC[p.kind] || "📄"} ${esc(p.name)}</h2>
+      <span class="pill">${st.pages} page${st.pages === 1 ? "" : "s"}</span>
+    </div>
+    <p class="subline" style="margin-top:0">${esc(meta)} · ${range}</p>
+    ${st.pct != null ? `<div class="bar"><i class="${st.pct >= 100 ? "done" : ""}" style="width:${st.pct}%"></i></div>
+      <p class="subline">${st.pages} of ${p.targetPages} pages — ${st.pct}%</p>` : ""}
+    <div class="tiles" style="margin-top:10px">
+      <div class="tile"><div class="v">${st.pages}</div><div class="l">Pages</div></div>
+      <div class="tile"><div class="v">${fmtMin(st.minutes)}</div><div class="l">Time</div></div>
+      <div class="tile"><div class="v">${st.avgR ?? "–"}</div><div class="l">Right average</div></div>
+      <div class="tile"><div class="v">${st.avgL ?? "–"}</div><div class="l">Left average</div></div>
+      <div class="tile"><div class="v">${st.best < 0 ? "–" : st.best}</div><div class="l">Best page</div></div>
+    </div>
+    ${pages.length ? `<details style="margin-top:10px"><summary>Pages in this project</summary>
+      <div class="tablewrap"><table><tbody><tr><th>Date</th><th>Hand</th><th>Style</th><th>Min</th><th>Overall</th></tr>` +
+      pages.map(s => `<tr><td><button class="linky" data-detail="${s.id}">${new Date(s.t).toLocaleDateString()}</button></td>
+        <td>${Object.keys(s.results || {}).sort().reverse().join("+") || "–"}</td><td>${esc(s.style || "")}</td>
+        <td>${s.durationMin ?? "–"}</td><td>${Object.values(s.results || {})[0]?.overall ?? "–"}</td></tr>`).join("") +
+      `</tbody></table></div></details>` : ""}
+    <details style="margin-top:8px"><summary>Edit</summary>
+      <div class="fieldrow" style="margin-top:10px">
+        <span class="flab">Name</span><input type="text" data-ed="name" value="${esc(p.name)}" style="flex:1;min-width:160px">
+      </div>
+      <div class="fieldrow">
+        <span class="flab">Kind</span>
+        <select data-ed="kind">${Object.entries(PROJECT_KINDS).map(([k, v]) =>
+          `<option value="${k}"${k === p.kind ? " selected" : ""}>${v}</option>`).join("")}</select>
+        <span class="flab">By</span><input type="text" data-ed="author" value="${esc(p.author || "")}" style="min-width:120px">
+        <span class="flab">Pages</span><input type="number" data-ed="targetPages" min="1" max="9999" value="${p.targetPages || ""}" style="width:78px">
+      </div>
+      <div class="fieldrow">
+        <button class="act primary" data-save="${p.id}">Save changes</button>
+        <button class="act" data-archive="${p.id}">${archived ? "Restore" : "Archive"}</button>
+        <button class="act" data-delproj="${p.id}">Delete</button>
+        <span class="d muted">Deleting keeps the pages — they just become unfiled.</span>
+      </div>
+    </details>
+  </div>`;
+}
+function renderProjects(S) {
+  const ps = loadProjects();
+  const active = ps.filter(p => !p.archivedAt), archived = ps.filter(p => p.archivedAt);
+  $("proj-count").textContent = active.length ? `${active.length} active` : "none yet";
+  const unfiled = S.filter(s => !isDrill(s) && !s.projectId);
+  $("proj-list").innerHTML =
+    active.map(p => projectCard(p, S, false)).join("") +
+    (unfiled.length ? `<div class="card">
+      <div class="card-hd"><h2>📂 Unfiled</h2><span class="pill">${unfiled.length} page${unfiled.length === 1 ? "" : "s"}</span></div>
+      <p class="subline">Pages not filed under a project. Open one from History and set its project there.</p>
+      </div>` : "") +
+    (!active.length && !unfiled.length ? `<div class="card"><p class="subline">No projects yet. Create one above, then pick it when you save a page.</p></div>` : "");
+  $("proj-archived-card").classList.toggle("hidden", !archived.length);
+  $("proj-archived-sum").textContent = `Archived (${archived.length})`;
+  $("proj-archived").innerHTML = archived.map(p => projectCard(p, S, true)).join("");
+  bindProjectActions("proj-list");
+  bindProjectActions("proj-archived");
+}
+function writeProjects(list) {
+  saveProjects(list);
+  if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+  renderAll();
+}
+function bindProjectActions(rootId) {
+  const root = $(rootId);
+  root.querySelectorAll("[data-detail]").forEach(b => b.onclick = () => openDetail(b.dataset.detail));
+  root.querySelectorAll("[data-save]").forEach(b => b.onclick = () => {
+    const card = b.closest(".proj"), id = b.dataset.save;
+    const list = loadProjects();
+    const p = projById(id, list);
+    if (!p) return;
+    const get = k => card.querySelector(`[data-ed="${k}"]`).value.trim();
+    const name = get("name");
+    if (!name) return;
+    Object.assign(p, { name, kind: get("kind"), author: get("author"), targetPages: +get("targetPages") || null });
+    writeProjects(list);
+  });
+  root.querySelectorAll("[data-archive]").forEach(b => b.onclick = () => {
+    const list = loadProjects(), p = projById(b.dataset.archive, list);
+    if (!p) return;
+    p.archivedAt = p.archivedAt ? null : Date.now();
+    writeProjects(list);
+  });
+  root.querySelectorAll("[data-delproj]").forEach(b => b.onclick = () => {
+    if (b.textContent !== "Sure?") { b.textContent = "Sure?"; return; }
+    const id = b.dataset.delproj;
+    // Deleting a project must never delete the writing in it — unfile the pages instead.
+    const S = loadSessions();
+    for (const s of S) if (s.projectId === id) delete s.projectId;
+    saveSessions(S);
+    saveProjects(loadProjects().filter(p => p.id !== id));
+    localStorage.setItem(PROJ_TOMB_KEY, JSON.stringify(mergeTombs(loadProjTombs(), [{ id, at: Date.now() }])));
+    if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+    renderAll();
+  });
+}
+$("np-add").onclick = () => {
+  const name = $("np-name").value.trim();
+  if (!name) { $("np-status").textContent = "Give it a name first."; return; }
+  const list = loadProjects();
+  list.push({
+    id: newId(), name, kind: $("np-kind").value, author: $("np-author").value.trim(),
+    targetPages: +$("np-target").value || null, startedAt: Date.now(), archivedAt: null,
+  });
+  $("np-name").value = ""; $("np-author").value = ""; $("np-target").value = "";
+  $("np-status").textContent = `Created "${name}".`;
+  $("proj-new").open = false;
+  writeProjects(list);
+};
+
 // ---------- PROGRESS ----------
 function renderProgress(S, st) {
   const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
@@ -2038,7 +2264,8 @@ function renderProgress(S, st) {
   $("histtable").querySelector("tbody").innerHTML = [...pages].reverse().map(s => {
     const hands = Object.keys(s.results).sort().reverse().map(h =>
       `<span style="color:${h === "R" ? "var(--right)" : "var(--left)"}">${h} ${s.results[h].overall ?? "–"}</span>`).join(" · ");
-    return `<tr><td><button class="linky" data-detail="${s.id}">${new Date(s.t).toLocaleDateString()}</button></td><td>${Object.keys(s.results).sort().reverse().join("+")}</td>
+    return `<tr><td><button class="linky" data-detail="${s.id}">${new Date(s.t).toLocaleDateString()}</button></td><td>${s.projectId && projById(s.projectId) ? esc(projById(s.projectId).name) : '<span class="muted">—</span>'}</td>
+      <td>${Object.keys(s.results).sort().reverse().join("+")}</td>
       <td>${esc(s.style)}</td><td>${s.mode === "mirror" ? "mirror" + (s.match != null ? ` ${s.match}%` : "") : "single"}</td>
       <td>${s.durationMin ?? "–"}</td><td>${hands}</td>
       <td><button data-del="${s.id}" title="Delete session">✕</button></td></tr>`;
@@ -2161,6 +2388,11 @@ function openDetail(id, S = loadSessions()) { // S injectable so the self-test n
     ${thumb ? `<div class="card"><img src="${thumb}" alt="The page from this session"
       style="width:100%;border-radius:8px;border:1px solid var(--border);background:#fff"></div>` : ""}
     <div class="card">
+      <div class="fieldrow">
+        <span class="flab">Project</span>
+        <select id="detail-project" style="min-width:170px"></select>
+        <span class="d">file this page under something</span>
+      </div>
       <div class="fieldrow" style="margin:0">
         <span class="pill">${esc(s.style)}</span>
         <span class="pill">${s.mode === "mirror" ? "mirror prime" : "single hand"}</span>
@@ -2178,6 +2410,16 @@ function openDetail(id, S = loadSessions()) { // S injectable so the self-test n
     $("detail").classList.remove("on");
     openDrill(b.dataset.drill);
   });
+  // filing a page after the fact — the common case, since projects arrived after the pages did
+  fillProjectSelect($("detail-project"), s.projectId || "", "No project");
+  $("detail-project").onchange = e => {
+    const all = loadSessions(), row = all.find(x => x.id === s.id);
+    if (!row) return; // a detail opened from injected test data isn't in the store
+    if (e.target.value) row.projectId = e.target.value; else delete row.projectId;
+    saveSessions(all);
+    if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+    renderAll();
+  };
   $("detail").classList.add("on");
   $("detail-body").scrollTop = 0;
 }
@@ -2275,8 +2517,10 @@ function drawTrend(S) {
   const metric = $("chart-metric").value, styleF = $("chart-style").value, modeF = $("chart-mode").value;
   const days = +$("chart-range").value;
   const cutoff = days ? Date.now() - days * DAY : 0;
+  const projF = $("chart-project").value;
   const F = S.filter(s => !isDrill(s) && s.t >= cutoff &&
-    (styleF === "all" || s.style === styleF) && (modeF === "all" || s.mode === modeF));
+    (styleF === "all" || s.style === styleF) && (modeF === "all" || s.mode === modeF) &&
+    (!projF || s.projectId === projF));
   const series = [];
   if (metric === "match") {
     const pts = F.filter(s => s.match != null).map(s => ({ t: s.t, v: s.match, lab: "Match" }));
@@ -2576,7 +2820,10 @@ $("save-btn").onclick = () => {
   } else results[prefs.hand] = withLeg(cur.r.metrics.scores);
   const s = loadSessions();
   const id = newId();
-  s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match });
+  const projectId = $("save-project").value || undefined;
+  prefs.lastProject = projectId || ""; // most people work through one book at a time
+  savePrefs();
+  s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, durationMin: +$("dur").value || null, results, match, projectId });
   saveSessions(s);
   saveThumb(id, cur.r.canvas, s); // after the push, so pruning sees the new session
   if (cur.drive) { // remember which scans are already logged, per page
@@ -2700,11 +2947,15 @@ function renderAll() {
   const st = deriveStats(S);
   renderToday(S, st);
   renderPractice(S);
+  renderProjects(S);
   renderProgress(S, st);
+  // keep both project pickers in step with the current list without losing what's chosen
+  fillProjectSelect($("save-project"), $("save-project").value || prefs.lastProject || "", "No project");
+  fillProjectSelect($("chart-project"), $("chart-project").value || "", "All projects");
 }
 function renderStats() { renderAll(); } // core.js (Drive sync) calls this after a merge
 
-for (const id of ["chart-metric", "chart-style", "chart-mode", "chart-range"]) $(id).onchange = () => drawTrend(loadSessions());
+for (const id of ["chart-metric", "chart-style", "chart-mode", "chart-range", "chart-project"]) $(id).onchange = () => drawTrend(loadSessions());
 let resizeT = null;
 addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(renderAll, 150); });
 // ponytail: taps fire emulated mouseenter but never mouseleave — clear stuck tooltips on touch
@@ -2889,6 +3140,40 @@ if (location.search.includes("selftest")) {
   pass = check("stats: empty history is safe", deriveStats([]).streak === 0 && deriveStats([]).best === -1) && pass;
   pass = check("stats: metric average over pages, got " + metricAvg(stS, "R", "overall"), metricAvg(stS, "R", "overall") === 79) && pass;
   pass = check("stats: drills never enter score averages", metricAvg(stS, "L", "overall") === 40) && pass;
+
+  // --- projects ---
+  const PJ = { id: "p1", name: "Moby-Dick", kind: "book", author: "Melville", targetPages: 10, startedAt: 1 };
+  const pS = [
+    { id: "pa", t: 1000, kind: "page", style: "print", durationMin: 20, projectId: "p1", results: { R: { overall: 70 } } },
+    { id: "pb", t: 2000, kind: "page", style: "print", durationMin: 30, projectId: "p1", results: { R: { overall: 90 }, L: { overall: 50 } } },
+    { id: "pc", t: 3000, kind: "page", style: "print", durationMin: 15, results: { R: { overall: 60 } } },
+    { id: "pd", t: 2500, kind: "drill", drillId: "warm-loops", durationMin: 5, projectId: "p1" },
+  ];
+  const pst = projectStats(PJ, pS);
+  pass = check("projects: counts only its own pages, got " + pst.pages, pst.pages === 2) && pass;
+  pass = check("projects: unfiled pages are excluded", pst.pages === 2 && pS.filter(s => !isDrill(s) && !s.projectId).length === 1) && pass;
+  pass = check("projects: a drill filed to it doesn't count as a page, minutes " + pst.minutes, pst.minutes === 50) && pass;
+  pass = check("projects: per-hand averages, got R" + pst.avgR + " L" + pst.avgL, pst.avgR === 80 && pst.avgL === 50) && pass;
+  pass = check("projects: best page, got " + pst.best, pst.best === 90) && pass;
+  pass = check("projects: progress toward the page goal, got " + pst.pct, pst.pct === 20) && pass;
+  pass = check("projects: date range spans its pages", pst.first === 1000 && pst.last === 2000) && pass;
+  pass = check("projects: a goal beyond reach caps at 100",
+    projectStats({ id: "p1", targetPages: 1 }, pS).pct === 100) && pass;
+  pass = check("projects: no goal means no progress bar", projectStats({ id: "p1" }, pS).pct === null) && pass;
+  pass = check("projects: an empty project is safe",
+    projectStats({ id: "nope" }, pS).pages === 0 && projectStats({ id: "nope" }, pS).first === null) && pass;
+  const q = (id, name) => ({ id, name, startedAt: 1 });
+  pass = check("projects: sync unions both sides", mergeProjects([q("a", "A")], [q("b", "B")], []).length === 2) && pass;
+  pass = check("projects: same id kept once, local wins",
+    mergeProjects([q("a", "mine")], [q("a", "theirs")], [])[0].name === "mine") && pass;
+  pass = check("projects: tombstone beats a remote copy",
+    mergeProjects([], [q("z", "Z")], [{ id: "z", at: 9 }]).length === 0) && pass;
+  // a v2 bundle predates projects entirely — merging against it must not wipe local ones
+  pass = check("projects: an older sync bundle can't delete local projects",
+    mergeProjects([q("a", "A")], undefined, undefined).length === 1) && pass;
+  fillProjectSelect($("chart-project"), "", "All projects");
+  pass = check("projects: the picker always offers the no-project choice first",
+    $("chart-project").options[0].value === "" && $("chart-project").options[0].textContent === "All projects") && pass;
 
   // --- per-line breakdown ---
   const lb = lineBreakdown(up.stats);

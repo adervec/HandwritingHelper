@@ -41,6 +41,12 @@ warm-up, two drills at the weak spot, one at the runner-up, then something to ph
 one of three **multi-week programs** — *Left hand from scratch* (8 weeks), *Neater printing* (6),
 *Cursive revival* (6) — which replace the generator with an ordered syllabus that advances by date.
 
+**Group pages into projects.** A page of practice and a page of a book you're copying out aren't the
+same thing. File pages under a project — a book (with author and a page goal), a journal, a course
+workbook, or anything else — and each one gets its own page count, time, per-hand averages, best
+page and progress bar. The trend chart filters by project, and pages you don't file stay under
+Unfiled. Deleting a project never deletes its pages; they just become unfiled.
+
 **Watch it move.** Weekly goal, streaks, an 18-week activity calendar, per-hand metric profile,
 trend chart, this-week-vs-last table, twelve achievements, and a **then-and-now view** that puts
 your first and latest page side by side — because a picture of your own handwriting from two months
@@ -55,7 +61,7 @@ symptom-to-drill troubleshooting table.
 Analysis runs entirely in your browser. **No photo ever leaves your device** — it is never uploaded
 or stored anywhere but locally. Page thumbnails stay on the device that made them.
 
-Connecting Google Drive is optional and syncs **scores only**, through a private app-data folder
+Connecting Google Drive is optional and syncs **scores and project names only**, through a private app-data folder
 that only this app can see. It uses a two-tier scope split: sync needs `drive.appdata`; importing
 scans from a folder needs the wider `drive.readonly`, requested separately and on demand, so a
 refused scan permission can never break sync.
