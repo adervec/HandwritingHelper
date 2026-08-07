@@ -309,7 +309,33 @@
 
 <!-- ============ TODAY ============ -->
 <section id="tab-today" class="tab-panel">
-  <div class="card">
+  <div class="card hidden" id="firstrun">
+    <h2>Start here</h2>
+    <p class="subline">Three things, about twenty minutes, and you'll have a baseline to improve on.</p>
+    <div class="planlist" style="margin-top:12px">
+      <a class="planitem" href="guide.html" style="text-decoration:none">
+        <span class="ic">📖</span>
+        <span class="body"><span class="t">Read how to photograph a page</span>
+          <span class="s">2 min · the one thing that makes every score trustworthy</span></span>
+        <span class="chev">›</span>
+      </a>
+      <button class="planitem" data-drill="warm-loops">
+        <span class="ic">🌀</span>
+        <span class="body"><span class="t">Warm up for two minutes</span>
+          <span class="s">2 min · loops and ovals, with a printable guide sheet</span></span>
+        <span class="chev">›</span>
+      </button>
+      <button class="planitem" id="firstrun-page">
+        <span class="ic">📸</span>
+        <span class="body"><span class="t">Write half a page and photograph it</span>
+          <span class="s">15 min · your dominant hand first — this becomes your baseline</span></span>
+        <span class="chev">›</span>
+      </button>
+    </div>
+    <p class="subline muted">Once a page is saved, this card is replaced by a plan aimed at whatever it finds.</p>
+  </div>
+
+  <div class="card" id="goal-card">
     <div class="card-hd">
       <h2 id="greeting">Today</h2>
       <span class="pill" id="today-date"></span>
@@ -322,7 +348,7 @@
     <p class="subline" id="goal-line"></p>
   </div>
 
-  <div class="card">
+  <div class="card" id="plan-card">
     <div class="card-hd">
       <h2>Today's plan</h2>
       <button class="act" id="plan-reroll" title="Build a different routine">↻ Reshuffle</button>
@@ -337,7 +363,7 @@
     <div class="tiles" id="today-tiles"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="profile-card">
     <div class="card-hd"><h2>Where you stand</h2><span class="d muted" style="font-size:12px" id="profile-note"></span></div>
     <div class="legend">
       <span><span class="chip" style="background:var(--right)"></span>Right hand</span>
@@ -1579,6 +1605,8 @@ for (const b of $("tabs").children) b.onclick = () => showTab(b.dataset.tab);
 
 // ---------- derived stats ----------
 const isDrill = s => s.kind === "drill";
+// a session logged today counts even if it carried no minutes, so this is not `todayMin > 0`
+const practisedToday = S => S.some(s => dayKey(s.t) === dayKey(Date.now()));
 const weekStart = t => { // Monday-based
   const d = new Date(t); d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -1636,6 +1664,19 @@ function loadPlan(S, reroll) {
   return rec;
 }
 function renderToday(S, st) {
+  // Before the first page there is nothing to plan from, so lead with what to do
+  // rather than a wall of zeroes and an empty chart.
+  const fresh = st.pages === 0;
+  $("firstrun").classList.toggle("hidden", !fresh);
+  for (const id of ["goal-card", "plan-card", "profile-card"]) $(id).classList.toggle("hidden", fresh);
+  if (fresh) {
+    bindDrillButtons("firstrun");
+    $("firstrun-page").onclick = () => showTab("analyze");
+    $("hdr-streak").textContent = "—";
+    $("today-tiles").innerHTML = `<p class="subline">Your totals appear here after the first saved page.</p>`;
+    $("today-date").textContent = new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    return;
+  }
   const now = new Date();
   const h = now.getHours();
   $("greeting").textContent = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
@@ -1648,9 +1689,12 @@ function renderToday(S, st) {
   $("today-goal-sub").textContent = `of ${prefs.goalMin} min this week`;
   $("goal-bar").style.width = pct + "%";
   $("goal-bar").classList.toggle("done", pct >= 100);
-  $("goal-line").textContent = pct >= 100
+  // a live streak with nothing logged today is the one nudge worth making
+  const atRisk = st.streak > 0 && !practisedToday(S);
+  $("goal-line").innerHTML = (pct >= 100
     ? `Goal met — ${st.weekMin - prefs.goalMin} min over. ${st.todayMin ? st.todayMin + " min today." : ""}`
-    : `${prefs.goalMin - st.weekMin} min to go · ${st.todayMin} min logged today`;
+    : `${prefs.goalMin - st.weekMin} min to go · ${st.todayMin} min logged today`) +
+    (atRisk ? ` · <b>${st.streak}-day streak still needs today</b>` : "");
 
   planCache = loadPlan(S, false);
   renderPlan(S);
@@ -2686,6 +2730,14 @@ if (location.search.includes("selftest")) {
   pass = check("stats: empty history is safe", deriveStats([]).streak === 0 && deriveStats([]).best === -1) && pass;
   pass = check("stats: metric average over pages, got " + metricAvg(stS, "R", "overall"), metricAvg(stS, "R", "overall") === 79) && pass;
   pass = check("stats: drills never enter score averages", metricAvg(stS, "L", "overall") === 40) && pass;
+
+  // --- first run + streak nudge ---
+  pass = check("first run: no pages means no plan to show", deriveStats([]).pages === 0) && pass;
+  pass = check("first run: a page today counts as practised",
+    practisedToday([{ id: "t", t: Date.now() }])) && pass;
+  pass = check("first run: yesterday's page does not", !practisedToday([{ id: "t", t: Date.now() - DAY }])) && pass;
+  pass = check("first run: a zero-minute session still counts as practised",
+    practisedToday([{ id: "t", t: Date.now(), kind: "drill", durationMin: null }])) && pass;
 
   // --- weekly review ---
   const ws = weekStart(Date.now());
