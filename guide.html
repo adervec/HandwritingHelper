@@ -85,6 +85,7 @@ refuses to move.</p>
     <li><a href="#anatomy">The anatomy of a written line</a></li>
     <li><a href="#metrics">What each score measures</a></li>
     <li><a href="#scripts">Other alphabets</a></li>
+    <li><a href="#detect">What the app works out on its own</a></li>
     <li><a href="#posture">Posture, grip and paper</a></li>
     <li><a href="#left">Writing with the left hand</a></li>
     <li><a href="#practice">How to practise so it sticks</a></li>
@@ -258,6 +259,36 @@ and which OCR language it reads with.</p>
   levels — some scripts simply carry more below-the-line material than others. A Hebrew 80 and a
   Latin 80 are not the same achievement. Compare yourself against yourself in one script, which
   is what the trend chart does anyway.</p>
+</div>
+
+<h2 id="detect">3c · What the app can work out on its own</h2>
+<p>After analyzing a page the app compares what it sees against your current settings, and says so
+if they disagree. It never changes a setting for you — a wrong guess would put a mislabelled score
+in your history, which is worse than not guessing. You get a one-tap switch and the reason.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>It can tell</th><th>How</th><th>How clearly</th></tr></thead>
+  <tbody>
+    <tr><td><b>Joined vs separated</b><br>(cursive vs printing)</td>
+        <td>Counts the separate blobs of ink per line. Printed letters stand alone; a cursive word is one continuous blob.</td>
+        <td>Separated scores about 1.5, joined about 0.16 — nine times apart, and steady across typefaces and sizes.</td></tr>
+    <tr><td><b>Mirror-prime pages</b></td>
+        <td>Checks whether the odd and even lines differ from each other by more than the lines within each group differ. An off-hand copy line is visibly less steady than the line it copies.</td>
+        <td>Alternating pages score ~37, a page that is simply messy throughout scores under 1.</td></tr>
+    <tr><td><b>A headline script</b><br>(Devanagari)</td>
+        <td>Looks for a long horizontal stroke running along the <em>top</em> of each line.</td>
+        <td>Devanagari's headline is unmistakable. A cursive join is also a long stroke, so the app checks it is at the top of the band and not on the baseline.</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="card tip">
+  <h3>What it deliberately does not guess</h3>
+  <p><b>Which alphabet, within the baseline family.</b> Latin, Cyrillic, Greek and Hebrew are the
+  same <em>shape</em> of writing — letters of mixed widths sitting on a line — and nothing in the
+  geometry separates them. Only reading the text could, and that is what the alphabet selector is for.</p>
+  <p><b>Chinese, Japanese and Korean.</b> The obvious signal, how even the character widths are,
+  measures 0.31–0.48 for those scripts and 0.48 for Latin: no separation at all. Rather than ship a
+  coin-flip, the app stays quiet. Set those from the Alphabet menu once and it is remembered.</p>
 </div>
 
 <h2 id="posture">4 · Posture, grip and paper</h2>

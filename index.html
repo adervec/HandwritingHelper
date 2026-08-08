@@ -258,6 +258,14 @@
   .card.proj h2 { font-size: 17px; }
   .card.proj .tile .v { font-size: 21px; }
 
+  .guess {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    border: 1px solid var(--accent); background: var(--tint); border-radius: 9px;
+    padding: 9px 11px; margin: 8px 0 0; font-size: 13px; color: var(--ink-2);
+  }
+  .guess b { color: var(--ink-1); }
+  .guess button { background: var(--surface-1); white-space: nowrap; }
+
   /* ---------- scan review gallery ---------- */
   #scans-body { flex: 1; overflow: auto; padding: 12px 14px 60px; }
   .scangrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; max-width: 1100px; margin: 0 auto; }
@@ -490,6 +498,7 @@
     <canvas id="preview"></canvas>
     <p class="subline hidden" id="srcline"></p>
     <p class="subline hidden" id="dup-warn"></p>
+    <div class="hidden" id="detect"></div>
     <p class="subline" id="slantline"></p>
     <div id="scorebox"></div>
     <details id="lines-card">
@@ -1021,7 +1030,67 @@ function rowStat(r, ink, W, sc = SCRIPTS.latin) {
     const mid = r2 => (r2[0] + r2[1]) / 2;
     for (let i = 1; i < merged.length; i++) pitches.push(mid(merged[i]) - mid(merged[i - 1]));
   }
-  return { height, slants, wobble, baseline, gaps, runs, pitches, y0: r.y0, y1: r.y1 };
+  // Shape features used to guess what KIND of writing this is (see detectPage). All cheap,
+  // all derived from things already scanned above.
+  //   topBand   where the row's longest horizontal stroke sits, 0 = top of band, 1 = bottom.
+  //             Devanagari's headline pins this near 0.
+  //   longRun   that stroke's length as a fraction of the row's ink width.
+  //   blobs     how many separate ink runs the row breaks into, per band-height of width.
+  //             Joined writing gives far fewer than separated writing.
+  //   squareness median ink-run width divided by band height — ~1 for boxed CJK characters.
+  let bestRun = 0, bestRunY = r.y0;
+  for (let y = r.y0; y < r.y1; y++) {
+    let len = 0;
+    for (let x = 0; x < W; x++) {
+      if (ink[y * W + x]) { if (++len > bestRun) { bestRun = len; bestRunY = y; } }
+      else len = 0;
+    }
+  }
+  const inkW = Math.max(1, last - first);
+  const blobW = [];
+  { let s0 = -1;
+    for (let x = first; x <= last + 1; x++) {
+      const on = x <= last && col[x] > 0;
+      if (on && s0 < 0) s0 = x;
+      else if (!on && s0 >= 0) { blobW.push(x - s0); s0 = -1; }
+    } }
+  const blobSorted = [...blobW].sort((a, b) => a - b);
+  // Connected components (8-connectivity) across the row band. This is the honest measure of
+  // "joined": printed letters are separate blobs, a cursive word is one long one. Column-run
+  // counting can't tell them apart because print letters overlap horizontally all the time.
+  const bh = r.y1 - r.y0;
+  const lab = new Int32Array(W * bh);
+  const parent = [0];
+  const find = a2 => { while (parent[a2] !== a2) { parent[a2] = parent[parent[a2]]; a2 = parent[a2]; } return a2; };
+  const uni = (a2, b2) => { a2 = find(a2); b2 = find(b2); if (a2 !== b2) parent[b2] = a2; };
+  let nextLab = 1;
+  for (let y = 0; y < bh; y++)
+    for (let x = 0; x < W; x++) {
+      if (!ink[(r.y0 + y) * W + x]) continue;
+      let m = 0;
+      const nb = [y > 0 ? lab[(y - 1) * W + x] : 0, x > 0 ? lab[y * W + x - 1] : 0,
+        (y > 0 && x > 0) ? lab[(y - 1) * W + x - 1] : 0,
+        (y > 0 && x < W - 1) ? lab[(y - 1) * W + x + 1] : 0];
+      for (const v of nb) if (v && (!m || v < m)) m = v;
+      if (!m) { lab[y * W + x] = nextLab; parent[nextLab] = nextLab; nextLab++; }
+      else { lab[y * W + x] = m; for (const v of nb) if (v) uni(m, v); }
+    }
+  const roots = new Set();
+  for (let i = 0; i < lab.length; i++) if (lab[i]) roots.add(find(lab[i]));
+  const bMean = blobW.length ? blobW.reduce((x, y) => x + y, 0) / blobW.length : 0;
+  const feat = {
+    topBand: (bestRunY - r.y0) / Math.max(1, height),
+    longRun: bestRun / inkW,
+    blobs: blobW.length / (inkW / Math.max(1, height)),
+    squareness: blobSorted.length ? blobSorted[blobSorted.length >> 1] / Math.max(1, height) : 0,
+    // spread of ink-run widths. Cell-set scripts put ONE character in each run so they are all
+    // the same width; alphabetic writing runs whole words together, so widths vary a lot.
+    // components per band-height of writing: separated writing is many, joined writing is few
+    comps: roots.size / Math.max(0.001, inkW / Math.max(1, height)),
+    blobCv: bMean && blobW.length > 2
+      ? Math.sqrt(blobW.reduce((x, y) => x + (y - bMean) * (y - bMean), 0) / blobW.length) / bMean : 0,
+  };
+  return { height, slants, wobble, baseline, gaps, runs, pitches, feat, y0: r.y0, y1: r.y1 };
 }
 
 function spacingCvOf(gaps, wordGaps) {
@@ -3108,6 +3177,21 @@ function runAnalysis(img, keepOcr) {
       <td>${l.wob == null ? "–" : (l.wob * 100).toFixed(0) + "%"}</td>
       <td><b>${l.score}</b></td></tr>`;
   }).join("");
+  // what the page itself suggests the settings should be
+  cur.signals = pageSignals(r.stats);
+  const guesses = detectSuggestions(cur.signals, prefs);
+  const dt = $("detect");
+  dt.classList.toggle("hidden", !guesses.length);
+  dt.innerHTML = guesses.map(g =>
+    `<div class="guess"><span><b>This page ${esc(g.label)}</b> — ${esc(g.why)}.</span>` +
+    `<button class="act" data-guess="${g.id}">${esc(g.action)}</button></div>`).join("");
+  dt.querySelectorAll("[data-guess]").forEach(b => b.onclick = () => {
+    guesses.find(g => g.id === b.dataset.guess).apply();
+    syncOptions();
+    renderAll();
+    runAnalysis(cur.img, true); // re-score with the setting the page asked for
+  });
+
   const sug = weak && suggestFor(weak, weakHand, prefs.style);
   if (sug) $("tips").insertAdjacentHTML("beforeend",
     `<li>Drill for this: <button class="act" data-drill="${sug.id}">${sug.ic} ${esc(sug.title)} · ${sug.min} min</button></li>`);
@@ -3145,6 +3229,74 @@ function runAnalysis(img, keepOcr) {
   $("save-btn").disabled = false;
   $("save-btn").textContent = "Save session";
   $("result").classList.remove("hidden");
+}
+
+// ---------- page auto-detection ----------
+// Every threshold below was MEASURED on rendered fixtures, and the measured spread is quoted
+// beside it. Everything here is a SUGGESTION: silently switching a setting would relabel a
+// page wrongly and put a bad score in your history, which is worse than not guessing.
+//
+// Deliberately NOT detected, because measurement said it can't be done from geometry:
+//   · which alphabet within the baseline family (Latin vs Cyrillic vs Greek vs Hebrew) —
+//     they are the same shape of writing and only OCR could tell them apart;
+//   · CJK and Korean cell scripts — blob-width spread, the obvious feature, put them at
+//     0.31-0.48 against Latin's 0.48, i.e. no separation at all.
+const DETECT = {
+  joined: 0.9,    // components per band-height: separated 1.47-1.57 (4 fonts x 4 sizes), joined 0.15-0.47
+  headline: 0.20, // longest horizontal run / ink width: Devanagari 0.30, every other script 0.03-0.13
+  mirror: 4,      // alternating-wobble ratio: mirror pairs 21.5, uniformly wobbly 0.67, plain 0.00
+  headTop: 0.5,   // that stroke must sit in the UPPER half of the band, or it is a cursive join
+};
+function pageSignals(stats) {
+  if (!stats || stats.length < 2) return null;
+  const avg = f => stats.reduce((a, s) => a + f(s), 0) / stats.length;
+  const wob = stats.map(s => (s.wobble ? s.wobble.v : 0));
+  const ev = wob.filter((_, i) => i % 2 === 0), od = wob.filter((_, i) => i % 2 === 1);
+  const m = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+  const sd = a => { const mu = m(a); return a.length ? Math.sqrt(a.reduce((x, y) => x + (y - mu) * (y - mu), 0) / a.length) : 0; };
+  // How much better does an odd/even split explain the baseline wobble than the variation
+  // WITHIN each group? A page that is simply messy throughout scores low; alternating
+  // dominant/copy lines score very high. That contrast is the whole test.
+  const within = (sd(ev) + sd(od)) / 2, between = Math.abs(m(ev) - m(od));
+  return {
+    rows: stats.length,
+    comps: avg(s => s.feat.comps),
+    longRun: avg(s => s.feat.longRun),
+    // where that longest stroke sits in the band, 0 = top. A Devanagari headline runs along
+    // the TOP; a cursive join runs along the BOTTOM. Without this they look identical.
+    topBand: avg(s => s.feat.topBand),
+    altWobble: within > 1e-9 ? between / within : (between > 1e-6 ? 99 : 0),
+  };
+}
+// what the page looks like vs what the app is currently set to
+function detectSuggestions(sig, now) {
+  if (!sig) return [];
+  const s = [];
+  const sc = scriptOf(now.script);
+  if (sig.longRun >= DETECT.headline && sig.topBand <= DETECT.headTop && sc.line !== "top")
+    s.push({ id: "script", label: "hangs from a headline",
+      why: "a long horizontal stroke runs along the top of each line",
+      action: "Switch to Devanagari", apply: () => { prefs.script = "devanagari"; } });
+  // only meaningful where the script has a print/cursive distinction at all — a script that
+  // is joined by nature (Devanagari, Arabic) is already handled by its own settings
+  if (!sc.wordGaps) {
+    if (sig.comps < DETECT.joined && now.style !== "cursive")
+      s.push({ id: "style", label: "looks joined up", why: "letters run together instead of standing apart",
+        action: "Switch to Cursive", apply: () => { prefs.style = "cursive"; } });
+    if (sig.comps > DETECT.joined * 1.4 && now.style === "cursive")
+      s.push({ id: "style", label: "looks separated", why: "the letters stand apart rather than joining",
+        action: "Switch to Printing", apply: () => { prefs.style = "print"; } });
+  }
+  if (sig.rows >= 4) {
+    if (sig.altWobble >= DETECT.mirror && now.mode !== "mirror")
+      s.push({ id: "mode", label: "alternates between two hands",
+        why: "every other line is steadier than the one below it",
+        action: "Switch to Mirror prime", apply: () => { prefs.mode = "mirror"; } });
+    if (sig.altWobble < 1 && now.mode === "mirror")
+      s.push({ id: "mode", label: "doesn't alternate", why: "the lines look like one hand throughout",
+        action: "Switch to Single hand", apply: () => { prefs.mode = "single"; } });
+  }
+  return s;
 }
 
 // ---------- scan review ----------
@@ -3530,6 +3682,89 @@ if (location.search.includes("selftest")) {
   pass = check("sync: tombstone beats a remote copy", m3.length === 1 && m3[0].id === "a") && pass;
   pass = check("sync: deleted session stays deleted", mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]).length === 0) && pass;
   pass = check("sync: tombstones dedupe", mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]).length === 2) && pass;
+
+  // --- page auto-detection ---
+  // Words drawn normally, or with a stroke connecting them along the baseline — which is
+  // topologically what joined writing is. Font-independent: it tests the signal, not a typeface.
+  const detPage = (opts = {}) => {
+    const words = ["handwriting", "sample", "text", "here", "practice"];
+    const lines = opts.lines || 6, size = 32;
+    const c = document.createElement("canvas");
+    c.width = 1000; c.height = 90 + (lines - 1) * 80;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    x.fillStyle = "#000"; x.strokeStyle = "#000"; x.lineWidth = 2;
+    for (let i = 0; i < lines; i++) {
+      const y = 60 + i * 80, wob = opts.mirror && i % 2 === 1 ? 7 : 0;
+      let cx = 60;
+      x.font = size + "px Georgia, serif";
+      for (const w of words) {
+        if (wob) { // an off-hand copy line: each letter placed a little off the line
+          for (let k = 0; k < w.length; k++) x.fillText(w[k], cx + k * size * 0.55, y + Math.sin(k * 1.7 + i) * wob);
+        } else x.fillText(w, cx, y);
+        const ww = wob ? w.length * size * 0.55 : x.measureText(w).width;
+        if (opts.join) { x.beginPath(); x.moveTo(cx, y - 1); x.lineTo(cx + ww, y - 1); x.stroke(); }
+        cx += ww + size * 0.55;
+      }
+      if (opts.headline) { // a shirorekha along the top of the band
+        x.beginPath(); x.moveTo(60, y - size * 0.66); x.lineTo(cx - size * 0.55, y - size * 0.66);
+        x.lineWidth = 3; x.stroke(); x.lineWidth = 2;
+      }
+    }
+    return c;
+  };
+  const sigOf = o => pageSignals(analyze(detPage(o), { mode: "single", style: "print", script: "latin" }).stats);
+  const sSep = sigOf({}), sJoin = sigOf({ join: true }), sMir = sigOf({ mirror: true }), sHead = sigOf({ headline: true });
+  pass = check("detect: separated writing scores high on components, got " + sSep.comps.toFixed(2),
+    sSep.comps > DETECT.joined) && pass;
+  pass = check("detect: joined writing scores low, got " + sJoin.comps.toFixed(2),
+    sJoin.comps < DETECT.joined) && pass;
+  pass = check("detect: and the two are far apart, ratio " + (sSep.comps / sJoin.comps).toFixed(1) + "x",
+    sSep.comps / sJoin.comps > 3) && pass;
+  pass = check("detect: a headline is seen, longRun " + sHead.longRun.toFixed(2) +
+    " topBand " + sHead.topBand.toFixed(2),
+    sHead.longRun >= DETECT.headline && sHead.topBand <= DETECT.headTop) && pass;
+  // regression: a cursive join is also a long horizontal run, but along the BASELINE
+  pass = check("detect: a cursive join is not mistaken for a headline, topBand " + sJoin.topBand.toFixed(2),
+    !detectSuggestions(sJoin, { script: "latin", style: "print", mode: "single" }).some(g => g.id === "script")) && pass;
+  pass = check("detect: ordinary writing has no headline, longRun " + sSep.longRun.toFixed(2),
+    sSep.longRun < DETECT.headline) && pass;
+  pass = check("detect: alternating lines are seen, altWobble " + sMir.altWobble.toFixed(1),
+    sMir.altWobble >= DETECT.mirror) && pass;
+  pass = check("detect: a plain page does not look like mirror prime, altWobble " + sSep.altWobble.toFixed(1),
+    sSep.altWobble < DETECT.mirror) && pass;
+  pass = check("detect: one line is not enough to guess anything", pageSignals([{}]) === null) && pass;
+
+  // the suggestions themselves, against what the app is currently set to
+  const sugOf = (sig, now) => detectSuggestions(sig, now).map(g => g.id).sort().join(",");
+  const basePrefs = { script: "latin", style: "print", mode: "single" };
+  pass = check("detect: joined writing while set to Printing suggests cursive and nothing else, got [" +
+    sugOf(sJoin, basePrefs) + "] comps=" + sJoin.comps.toFixed(2) + " longRun=" + sJoin.longRun.toFixed(2) +
+    " topBand=" + sJoin.topBand.toFixed(2), sugOf(sJoin, basePrefs) === "style") && pass;
+  pass = check("detect: and says nothing once you're already on Cursive",
+    !detectSuggestions(sJoin, { ...basePrefs, style: "cursive" }).some(g => g.id === "style")) && pass;
+  pass = check("detect: separated writing while set to Cursive suggests printing",
+    detectSuggestions(sSep, { ...basePrefs, style: "cursive" }).some(g => g.id === "style")) && pass;
+  pass = check("detect: a plain page suggests nothing at all", sugOf(sSep, basePrefs) === "") && pass;
+  pass = check("detect: alternating lines suggest mirror prime",
+    detectSuggestions(sMir, basePrefs).some(g => g.id === "mode")) && pass;
+  pass = check("detect: a non-alternating page in mirror mode suggests going back",
+    detectSuggestions(sSep, { ...basePrefs, mode: "mirror" }).some(g => g.id === "mode")) && pass;
+  pass = check("detect: a headline page suggests the headline script",
+    detectSuggestions(sHead, basePrefs).some(g => g.id === "script")) && pass;
+  pass = check("detect: and not once Devanagari is already selected",
+    !detectSuggestions(sHead, { ...basePrefs, script: "devanagari" }).some(g => g.id === "script")) && pass;
+  // a script joined by nature must not be nagged about cursive — its own settings cover it
+  pass = check("detect: no cursive nagging for a script that is joined by nature",
+    !detectSuggestions(sJoin, { ...basePrefs, script: "arabic" }).some(g => g.id === "style")) && pass;
+  pass = check("detect: suggestions actually change the setting they name", (() => {
+    const before = prefs.style;
+    const g = detectSuggestions(sJoin, basePrefs).find(x => x.id === "style");
+    g.apply();
+    const changed = prefs.style === "cursive";
+    prefs.style = before;
+    return changed;
+  })()) && pass;
 
   // --- duplicate detection ---
   // Shaped like what actually gets hashed: a portrait page, mostly white, a dozen written

@@ -49,6 +49,14 @@ stroke angle so slant isn't scored, joined and cell-set scripts are judged on wo
 character pitch instead of letter gaps. Drills print their own alphabet on the right guide sheet
 (headline, character cells, right-to-left) and OCR loads the matching language model.
 
+**It works out what it's looking at.** After analyzing, the app compares the page against your
+settings and offers a one-tap switch if they disagree: joined writing while you're set to Printing,
+alternating dominant/copy lines while you're set to Single hand, or a headline script. It only
+claims what measurement supports — separated vs joined writing is 1.5 against 0.16 (nine times
+apart, stable across typefaces and sizes), mirror pages score ~37 against under 1 for a page that's
+merely messy. It deliberately does *not* guess which alphabet within the baseline family, or CJK
+versus Latin, because the geometry genuinely doesn't separate them. It never switches silently.
+
 **Review a whole scan batch at once.** The Drive scanner batches a stack of pages into one PDF,
 so opening a PDF — from Drive or straight off your phone, no account needed — gives you a gallery
 of every page. Pages already saved are dimmed (tracked per *page*, so a 40-page batch with one page
