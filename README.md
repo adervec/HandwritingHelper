@@ -49,6 +49,19 @@ stroke angle so slant isn't scored, joined and cell-set scripts are judged on wo
 character pitch instead of letter gaps. Drills print their own alphabet on the right guide sheet
 (headline, character cells, right-to-left) and OCR loads the matching language model.
 
+**Review a whole scan batch at once.** The Drive scanner batches a stack of pages into one PDF,
+so opening a PDF — from Drive or straight off your phone, no account needed — gives you a gallery
+of every page. Pages already saved are dimmed (tracked per *page*, so a 40-page batch with one page
+logged isn't marked finished), duplicates are flagged, and "Import all new" does the rest. The
+document is parsed once rather than per page: a 40-page batch is 160ms to parse and 17ms per
+thumbnail.
+
+**Duplicate detection.** Every page carries a 256-bit layout fingerprint (a 16x16 difference hash).
+Re-scanning a page you've already logged is flagged before you save it twice, whether it repeats an
+earlier page of the same batch or one from months ago. The resolution and threshold were measured,
+not guessed — at 64 bits a re-scan and a different page are 5 and 10 bits apart, which is no
+separation at all; at 256 bits they're 13 and 70.
+
 **Group pages into projects.** A page of practice and a page of a book you're copying out aren't the
 same thing. File pages under a project — a book (with author and a page goal), a journal, a course
 workbook, or anything else — and each one gets its own page count, time, per-hand averages, best
@@ -97,8 +110,9 @@ Setup tab lists every check. It covers the image analysis on synthetic pages, OC
 parsing, Drive sync merge semantics, the drill catalog, guide-sheet geometry, plan and program
 generation, derived stats, the weekly and compare views, and every chart.
 
-`?selftest=ocr` adds checks that hit the network. `test/pdf-render.html` separately verifies the
-pdf.js path used for Drive PDF scans.
+`?selftest=ocr` and `?selftest=pdf` add checks that hit the network — the latter builds a 40-page
+PDF in memory with a duplicate planted in it and runs it through the real import path. See
+`test/README.md`.
 
 Headless:
 

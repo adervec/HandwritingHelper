@@ -81,6 +81,7 @@ refuses to move.</p>
   <b style="font-size:14px">On this page</b>
   <ol>
     <li><a href="#photo">Photographing a page</a></li>
+    <li><a href="#batches">Scan batches and duplicates</a></li>
     <li><a href="#anatomy">The anatomy of a written line</a></li>
     <li><a href="#metrics">What each score measures</a></li>
     <li><a href="#scripts">Other alphabets</a></li>
@@ -112,6 +113,32 @@ It is looking at geometry, not meaning — so the photo has to preserve geometry
   <h3>The single biggest mistake</h3>
   <p>Photographing at an angle and then wondering why the slant score dropped. If a score moves
   sharply for no reason you can feel in your hand, re-shoot the page before believing it.</p>
+</div>
+
+<h2 id="batches">1b · Scan batches and duplicates</h2>
+<p>The Google Drive scanner puts a whole stack of pages into <b>one PDF</b>, so a scan is
+routinely forty pages, not one. Open a PDF — from Drive, or straight off your phone with the
+file picker; no Google account needed either way — and you get a gallery of every page in it.</p>
+<ul>
+  <li><b>Every page has a thumbnail</b>, so you can find the three you have not logged yet
+    without stepping through a dropdown one render at a time.</li>
+  <li><b>Pages you have already saved are dimmed</b> and marked. This is tracked per page, not
+    per file, so a forty-page batch with one page logged does not read as finished.</li>
+  <li><b>Duplicates are flagged in amber</b> — either a page that repeats an earlier page of the
+    same batch (scanners double-feed) or one matching a page already in your history.</li>
+  <li><b>Import all new</b> analyzes and files every page that is neither saved nor a duplicate,
+    using your current hand, style and alphabet settings. You can stop it part-way.</li>
+</ul>
+<div class="card tip">
+  <h3>How a duplicate is recognised</h3>
+  <p>Each page gets a 256-bit fingerprint of its <em>layout</em> — the page is shrunk to a 16×16
+  grid and what is recorded is which cells are darker than their neighbour. Lighting and small
+  shifts barely change it, so the same sheet scanned twice still matches, while two different
+  pages are far apart. The thresholds were measured on real page shapes rather than guessed:
+  a re-scan of one sheet scores around 13 bits different, two different pages around 70, and
+  anything at or under 32 is called a duplicate.</p>
+  <p>It is a warning, never a block. If you really did write the same drill twice and want both
+  logged, save it anyway.</p>
 </div>
 
 <h2 id="anatomy">2 · The anatomy of a written line</h2>

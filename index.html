@@ -258,6 +258,27 @@
   .card.proj h2 { font-size: 17px; }
   .card.proj .tile .v { font-size: 21px; }
 
+  /* ---------- scan review gallery ---------- */
+  #scans-body { flex: 1; overflow: auto; padding: 12px 14px 60px; }
+  .scangrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; max-width: 1100px; margin: 0 auto; }
+  .scan {
+    border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--surface-1);
+    cursor: pointer; padding: 0; text-align: left; width: 100%; font: inherit; color: var(--ink-1);
+    display: flex; flex-direction: column;
+  }
+  .scan:hover { border-color: var(--accent); }
+  .scan img { width: 100%; display: block; background: #fff; aspect-ratio: 1 / 1.35; object-fit: cover; object-position: top; }
+  .scan .cap { padding: 6px 8px; font-size: 12px; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+  .scan .cap b { font-weight: 650; }
+  .scan .tagline { padding: 0 8px 7px; font-size: 11px; }
+  .scan.saved img { opacity: .5; }
+  .scan.saved .tagline { color: var(--good); }
+  .scan.dup img { opacity: .55; }
+  .scan.dup { border-color: var(--warn); }
+  .scan.dup .tagline { color: var(--warn); }
+  .scan .skel { width: 100%; aspect-ratio: 1 / 1.35; background: var(--surface-2); }
+  #scans-note { max-width: 1100px; margin: 0 auto 10px; }
+
   .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
   .badge { text-align: center; padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-1); }
   .badge.locked { opacity: .38; }
@@ -266,17 +287,17 @@
   .badge .d { font-size: 10px; color: var(--ink-muted); }
 
   /* ---------- overlays: drill runner + session detail ---------- */
-  #sheet, #detail {
+  #sheet, #detail, #scans {
     position: fixed; inset: 0; z-index: 50; background: var(--page);
     display: none; flex-direction: column;
   }
-  #sheet.on, #detail.on { display: flex; }
+  #sheet.on, #detail.on, #scans.on { display: flex; }
   #detail-body { flex: 1; overflow: auto; padding: 14px 14px 60px; }
   #detail-body > div { max-width: 780px; margin: 0 auto; }
   .delta { font-size: 12px; font-weight: 600; }
   .delta.up { color: var(--good); } .delta.down, .delta.flat { color: var(--ink-muted); }
   button.linky { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; text-align: left; }
-  #sheet .sheetbar, #detail .sheetbar {
+  #sheet .sheetbar, #detail .sheetbar, #scans .sheetbar {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-1);
     padding-top: max(10px, env(safe-area-inset-top));
@@ -458,9 +479,9 @@
   </div>
 
   <div id="drop" tabindex="0">
-    <b>Add a photo of your page</b> — tap to choose (camera or gallery), drop it here, or paste.<br>
-    <span style="font-size:13px">Dark writing on light paper, photographed straight-on, works best.</span>
-    <input type="file" id="file" accept="image/*" class="hidden">
+    <b>Add a photo or a scanned PDF</b> — tap to choose (camera, gallery or files), drop it here, or paste.<br>
+    <span style="font-size:13px">A multi-page PDF opens as a page gallery. Dark writing on light paper, photographed straight-on, works best.</span>
+    <input type="file" id="file" accept="image/*,application/pdf,.pdf" class="hidden">
   </div>
   <p id="err" class="hidden"></p>
 
@@ -468,6 +489,7 @@
     <h2>Analysis</h2>
     <canvas id="preview"></canvas>
     <p class="subline hidden" id="srcline"></p>
+    <p class="subline hidden" id="dup-warn"></p>
     <p class="subline" id="slantline"></p>
     <div id="scorebox"></div>
     <details id="lines-card">
@@ -761,6 +783,19 @@
       </div>
       <div id="sheet-paper"></div>
     </div>
+  </div>
+</div>
+
+<!-- every page of a scan batch, as a reviewable gallery -->
+<div id="scans">
+  <div class="sheetbar">
+    <b id="scans-title" class="grow">Scanned pages</b>
+    <button class="act" id="scans-import">Import all new</button>
+    <button class="act" id="scans-close">Close</button>
+  </div>
+  <div id="scans-body">
+    <p class="subline" id="scans-note"></p>
+    <div class="scangrid" id="scans-grid"></div>
   </div>
 </div>
 
@@ -1293,28 +1328,115 @@ async function driveSync({ silent = false } = {}) {
   return merged.length;
 }
 
-// Drive's scanner saves PDFs, so render the page to a canvas the analyzer can read
-async function pdfPage(buf, n) {
-  if (!window.pdfjsLib) {
-    await loadScript("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-  }
-  const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise; // getDocument consumes the buffer
-  const page = await pdf.getPage(Math.min(n, pdf.numPages));
+// ---------- PDFs ----------
+// The Drive scanner batches a whole stack of pages into ONE pdf, so a document here is
+// routinely 40+ pages. Parse it once and keep the handle: the previous version called
+// getDocument() per page, which re-parsed the entire file (and re-copied its bytes) every
+// time you stepped to the next page.
+async function ensurePdfjs() {
+  if (window.pdfjsLib) return;
+  await loadScript("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+}
+let pdfCache = null; // { key, doc } — one document at a time is enough; batches are opened one by one
+async function pdfDocFor(key, buf) {
+  if (pdfCache && pdfCache.key === key) return pdfCache.doc;
+  await ensurePdfjs();
+  if (pdfCache) { try { pdfCache.doc.destroy(); } catch (e) {} } // release the old one's worker memory
+  const doc = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise; // getDocument consumes the buffer
+  pdfCache = { key, doc };
+  return doc;
+}
+// targetW: 1600 for analysis, ~200 for a review thumbnail
+async function pdfRender(doc, n, targetW = 1600) {
+  const page = await doc.getPage(Math.max(1, Math.min(n, doc.numPages)));
   const base = page.getViewport({ scale: 1 });
-  const vp = page.getViewport({ scale: Math.min(3, 1600 / base.width) }); // ponytail: 1600px wide is plenty downstream
+  const vp = page.getViewport({ scale: Math.min(3, targetW / base.width) });
   const c = document.createElement("canvas");
-  c.width = vp.width; c.height = vp.height;
+  c.width = Math.max(1, Math.round(vp.width));
+  c.height = Math.max(1, Math.round(vp.height));
   await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
-  return { canvas: c, pages: pdf.numPages };
+  page.cleanup();
+  return c;
+}
+async function pdfPage(key, buf, n, targetW = 1600) {
+  const doc = await pdfDocFor(key, buf);
+  return { canvas: await pdfRender(doc, n, targetW), pages: doc.numPages };
+}
+
+// ---------- duplicate detection ----------
+// 256-bit difference hash: shrink to 17x16 grey and record whether each pixel is darker
+// than its right-hand neighbour. What survives is the page's layout, not its exposure, so the
+// same sheet scanned twice under different light still matches and two different pages do not.
+//
+// The resolution was measured, not guessed. On realistic pages — portrait, mostly white, a
+// dozen lines of writing — a re-scan of the SAME sheet and a DIFFERENT page score:
+//     8x8   (64 bits):  re-scan 5,  different pages from 10   <- no safe threshold exists
+//     16x16 (256 bits): re-scan 13, different pages from 70   <- clean separation
+//     24x24 (576 bits): re-scan 31, different pages from 187  <- no better ratio, 2x the size
+// A handwriting page is mostly white paper, so at 8x8 it collapses to a near-uniform smudge
+// and every page reads as a duplicate of every other.
+const HASH_N = 16, HASH_BITS = HASH_N * HASH_N;
+function pageHash(src) {
+  const mid = document.createElement("canvas");
+  mid.width = (HASH_N + 1) * 8; mid.height = HASH_N * 8;
+  const mx = mid.getContext("2d", { willReadFrequently: true });
+  mx.imageSmoothingQuality = "high";
+  mx.fillStyle = "#fff"; mx.fillRect(0, 0, mid.width, mid.height); // a transparent source stays paper-white
+  mx.drawImage(src, 0, 0, mid.width, mid.height);
+  const c = document.createElement("canvas");
+  c.width = HASH_N + 1; c.height = HASH_N;
+  const x = c.getContext("2d", { willReadFrequently: true });
+  x.imageSmoothingQuality = "high";
+  x.drawImage(mid, 0, 0, HASH_N + 1, HASH_N); // two-step: one huge-to-tiny draw aliases badly
+  const d = x.getImageData(0, 0, HASH_N + 1, HASH_N).data;
+  const grey = i => d[i * 4] * 3 + d[i * 4 + 1] * 6 + d[i * 4 + 2];
+  let hex = "", nib = 0, bits = 0;
+  for (let y = 0; y < HASH_N; y++)
+    for (let xx = 0; xx < HASH_N; xx++) {
+      nib = (nib << 1) | (grey(y * (HASH_N + 1) + xx) > grey(y * (HASH_N + 1) + xx + 1) ? 1 : 0);
+      if (++bits % 4 === 0) { hex += nib.toString(16); nib = 0; }
+    }
+  return hex; // HASH_BITS/4 hex chars
+}
+const HEX_BITS = { 0: 0, 1: 1, 2: 1, 3: 2, 4: 1, 5: 2, 6: 2, 7: 3, 8: 1, 9: 2, a: 2, b: 3, c: 2, d: 3, e: 3, f: 4 };
+// how many bits differ; the full width (i.e. "nothing alike") when either side has no hash,
+// which is also what an old 64-bit hash from before this change scores against a new one
+function hashDistance(a, b) {
+  if (!a || !b || a.length !== b.length) return HASH_BITS;
+  let d = 0;
+  for (let i = 0; i < a.length; i++)
+    d += HEX_BITS[((parseInt(a[i], 16) ^ parseInt(b[i], 16)) & 15).toString(16)];
+  return d;
+}
+// Sits between the two measured populations with room on both sides: a re-scan lands near 13,
+// a genuinely different page near 70. ponytail: tighten if repeating the same drill page every
+// day starts reading as duplicates.
+const DUP_BITS = 32;
+const isDup = (a, b) => hashDistance(a, b) <= DUP_BITS;
+// the saved session a page duplicates, if any
+function findDuplicate(hash, sessions, excludeId) {
+  if (!hash) return null;
+  let best = null;
+  for (const s of sessions) {
+    if (s.id === excludeId || !s.hash) continue;
+    const d = hashDistance(hash, s.hash);
+    if (d <= DUP_BITS && (!best || d < best.d)) best = { session: s, d };
+  }
+  return best;
 }
 
 let driveFiles = [], driveBuf = null;
 function renderDriveList() {
+  // Count SAVED PAGES, not "has this file been touched". A 40-page batch with one page
+  // logged used to render as fully done, which is how pages get missed.
+  const saved = [...savedSrcKeys()];
   $("drive-list").innerHTML = driveFiles.map((f, i) => {
-    const done = DRIVE.imported.some(k => k.startsWith(f.id));
-    return `<button class="act filerow${done ? " done" : ""}" data-i="${i}"><span>${esc(f.name)}</span>` +
-      `<span class="d">${new Date(f.createdTime).toLocaleDateString()}${done ? " · saved ✓" : ""}</span></button>`;
+    const n = saved.filter(k => k.startsWith(f.id + "#")).length;
+    const pdf = f.mimeType === "application/pdf";
+    return `<button class="act filerow${n ? " done" : ""}" data-i="${i}"><span>${pdf ? "📄 " : "🖼 "}${esc(f.name)}</span>` +
+      `<span class="d">${new Date(f.createdTime).toLocaleDateString()}` +
+      (n ? ` · ${n} page${n === 1 ? "" : "s"} saved` : pdf ? " · review pages" : "") + `</span></button>`;
   }).join("");
   $("drive-list").querySelectorAll("button").forEach(b => b.onclick = () => driveOpen(driveFiles[+b.dataset.i], 1));
 }
@@ -1325,14 +1447,20 @@ async function driveOpen(f, page) {
     if (driveBuf?.id !== f.id) driveBuf = { id: f.id, buf: await (await driveGet("files/" + f.id, { alt: "media" })).arrayBuffer() };
     const t = new Date(f.createdTime).getTime();
     if (f.mimeType === "application/pdf") {
-      const { canvas, pages } = await pdfPage(driveBuf.buf, page);
-      useSource(canvas, t, { drive: f, page, pages });
+      // a batch is reviewed as a gallery, not stepped through one page at a time
+      const doc = await pdfDocFor(f.id, driveBuf.buf);
+      st.textContent = "";
+      await openScans({
+        title: f.name, key: f.id, pages: doc.numPages, t, drive: f,
+        render: (n, w) => pdfRender(doc, n, w),
+      });
+      return;
     } else {
       const img = new Image();
       const url = URL.createObjectURL(new Blob([driveBuf.buf], { type: f.mimeType }));
       await new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error("Couldn't read that file as an image.")); img.src = url; });
       URL.revokeObjectURL(url);
-      useSource(img, t, { drive: f, page: 1, pages: 1 });
+      useSource(img, t, { drive: f, page: 1, pages: 1, srcKey: srcKeyOf(f.id, 1) });
     }
     st.textContent = "";
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2300,7 +2428,8 @@ $("sheet-print").onclick = () => print();
 $("sheet-close").onclick = () => { stopTimer(); $("sheet").classList.remove("on"); };
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
-  if ($("detail").classList.contains("on")) $("detail").classList.remove("on");
+  if ($("scans").classList.contains("on")) $("scans-close").click();
+  else if ($("detail").classList.contains("on")) $("detail").classList.remove("on");
   else if ($("sheet").classList.contains("on")) $("sheet-close").click();
 });
 $("run-log").onclick = () => {
@@ -2813,7 +2942,7 @@ drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
 drop.ondragleave = () => drop.classList.remove("over");
 drop.ondrop = e => {
   e.preventDefault(); drop.classList.remove("over");
-  const f = [...e.dataTransfer.files].find(f => f.type.startsWith("image/"));
+  const f = [...e.dataTransfer.files].find(f => f.type.startsWith("image/") || f.type === "application/pdf" || /\.pdf$/i.test(f.name));
   if (f) handleFile(f);
 };
 addEventListener("paste", e => {
@@ -2821,14 +2950,31 @@ addEventListener("paste", e => {
   if (it) { showTab("analyze"); handleFile(it.getAsFile()); }
 });
 function handleFile(file) {
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) { handleLocalPdf(file); return; }
   const img = new Image();
   img.onload = () => { URL.revokeObjectURL(img.src); useSource(img, file.lastModified || Date.now()); };
   img.onerror = () => showErr("Couldn't read that file as an image.");
   img.src = URL.createObjectURL(file);
 }
+// A PDF straight off the phone — a Drive batch you downloaded, say — opens as the same
+// review gallery as one fetched from Drive, so none of this needs a Google account.
+async function handleLocalPdf(file) {
+  showTab("analyze");
+  $("err").classList.add("hidden");
+  try {
+    const key = "local:" + file.name + ":" + file.size;
+    const doc = await pdfDocFor(key, await file.arrayBuffer());
+    await openScans({
+      title: file.name, key, pages: doc.numPages, t: file.lastModified || Date.now(),
+      render: (n, w) => pdfRender(doc, n, w),
+    });
+  } catch (e) { showErr("Couldn't read that PDF — " + e.message); }
+}
+
 // one entry point for every source: local file, paste, or Drive (image or rendered PDF page)
 function useSource(src, t, meta = {}) {
-  cur = { img: src, photoT: t, drive: meta.drive, page: meta.page || 1, pages: meta.pages || 1 };
+  cur = { img: src, photoT: t, drive: meta.drive, page: meta.page || 1, pages: meta.pages || 1,
+    srcKey: meta.srcKey, scan: meta.scan };
   showTab("analyze");
   runAnalysis(src);
 }
@@ -2968,14 +3114,26 @@ function runAnalysis(img, keepOcr) {
   bindDrillButtons("tips");
 
   const sl = $("srcline");
-  sl.classList.toggle("hidden", !cur.drive);
-  if (cur.drive) {
-    sl.innerHTML = esc(cur.drive.name) + (cur.pages > 1
-      ? ` · page <select id="pdf-page">` +
-        Array.from({ length: cur.pages }, (_, i) => `<option${i + 1 === cur.page ? " selected" : ""}>${i + 1}</option>`).join("") +
-        `</select> of ${cur.pages}`
-      : "");
-    if (cur.pages > 1) $("pdf-page").onchange = e => driveOpen(cur.drive, +e.target.value);
+  const srcName = cur.scan ? cur.scan.title : cur.drive ? cur.drive.name : null;
+  sl.classList.toggle("hidden", !srcName);
+  if (srcName) {
+    sl.innerHTML = esc(srcName) + (cur.pages > 1 ? ` · page ${cur.page} of ${cur.pages}` : "") +
+      (cur.scan ? ` · <button class="linky" id="back-to-scans">‹ all pages</button>` : "");
+    if (cur.scan) $("back-to-scans").onclick = () => reopenScans(cur.scan);
+  }
+
+  // Duplicate check against everything already saved. Re-scanning a page you have already
+  // logged is easy to do with a batch scanner, and silently double-counts your practice.
+  cur.hash = pageHash(r.canvas);
+  const dup = findDuplicate(cur.hash, loadSessions());
+  const dw = $("dup-warn");
+  dw.classList.toggle("hidden", !dup);
+  if (dup) {
+    dw.innerHTML = `<b style="color:var(--warn)">Possible duplicate.</b> This looks like the page you saved on ` +
+      `<b>${fmtDate(dup.session.t)}</b>${dup.d === 0 ? " (identical)" : ` (${dup.d} of 64 bits differ)`}. ` +
+      `Saving it again would count the same practice twice. ` +
+      `<button class="linky" data-detail="${dup.session.id}">Open that session</button>`;
+    dw.querySelector("[data-detail]").onclick = e => openDetail(e.target.dataset.detail);
   }
   $("photo-date").textContent = "(" + new Date(cur.photoT).toLocaleDateString() + ")";
   if (!keepOcr) {
@@ -2988,6 +3146,136 @@ function runAnalysis(img, keepOcr) {
   $("save-btn").textContent = "Save session";
   $("result").classList.remove("hidden");
 }
+
+// ---------- scan review ----------
+// A Drive scan batch is one PDF with a stack of pages in it. Stepping through them in a
+// dropdown, one render at a time, is no way to find the three you haven't logged yet — so
+// every page gets a thumbnail, and the ones already saved or duplicated say so up front.
+const srcKeyOf = (fileKey, page) => fileKey + "#" + page;
+const savedSrcKeys = (S = loadSessions()) => new Set(S.filter(s => s.srcKey).map(s => s.srcKey));
+
+let scanCtx = null; // { title, key, pages, t, drive, render(n, width), items[] }
+function scanTile(it) {
+  const cls = it.saved ? " saved" : it.dupOf ? " dup" : "";
+  const tag = it.saved ? "saved ✓"
+    : it.dupOf ? (it.dupOf.page ? `same as page ${it.dupOf.page}` : `already saved ${fmtDate(it.dupOf.t)}`)
+    : "&nbsp;";
+  return `<button class="scan${cls}" data-page="${it.n}">
+    <img src="${it.thumb}" alt="Page ${it.n}" loading="lazy">
+    <span class="cap"><b>Page ${it.n}</b></span>
+    <span class="tagline">${tag}</span>
+  </button>`;
+}
+function paintScans() {
+  $("scans-grid").innerHTML = scanCtx.items.map(scanTile).join("");
+  $("scans-grid").querySelectorAll("[data-page]").forEach(b =>
+    b.onclick = () => openScanPage(+b.dataset.page));
+  const fresh = scanCtx.items.filter(it => !it.saved && !it.dupOf).length;
+  const dup = scanCtx.items.filter(it => it.dupOf).length;
+  const done = scanCtx.items.filter(it => it.saved).length;
+  $("scans-note").innerHTML = `${scanCtx.items.length} page${scanCtx.items.length === 1 ? "" : "s"} · ` +
+    `<b>${fresh} new</b> · ${done} already saved` + (dup ? ` · <b style="color:var(--warn)">${dup} duplicate${dup === 1 ? "" : "s"}</b>` : "") +
+    `<br><span class="muted">Tap a page to analyze it. Importing uses your current hand, style and alphabet settings.</span>`;
+  $("scans-import").disabled = fresh === 0;
+  $("scans-import").textContent = fresh ? `Import ${fresh} new` : "Nothing new";
+}
+async function openScans(ctx) {
+  scanCtx = ctx;
+  scanCtx.items = [];
+  $("scans-title").textContent = ctx.title;
+  $("scans-grid").innerHTML = "";
+  $("scans-note").textContent = `Rendering ${ctx.pages} page${ctx.pages === 1 ? "" : "s"}…`;
+  $("scans-import").disabled = true;
+  $("scans").classList.add("on");
+  $("scans-body").scrollTop = 0;
+  const saved = savedSrcKeys(), S = loadSessions();
+  for (let n = 1; n <= ctx.pages; n++) {
+    if (scanCtx !== ctx) return; // the gallery was closed or replaced mid-render
+    let canvas;
+    try { canvas = await ctx.render(n, 240); }
+    catch (e) { continue; } // one unreadable page must not abort the whole batch
+    const hash = pageHash(canvas);
+    const key = srcKeyOf(ctx.key, n);
+    // a duplicate is either a page already in your history, or an earlier page of this same
+    // batch — scanners double-feed, and the Drive app happily scans the same sheet twice
+    const earlier = ctx.items.find(it => isDup(it.hash, hash));
+    const inHistory = findDuplicate(hash, S);
+    ctx.items.push({
+      n, key, hash, thumb: canvas.toDataURL("image/jpeg", 0.62),
+      saved: saved.has(key),
+      dupOf: earlier ? { page: earlier.n } : inHistory ? { t: inHistory.session.t } : null,
+    });
+    paintScans();
+    $("scans-note").insertAdjacentHTML("beforeend", ` <span class="muted">(${n}/${ctx.pages})</span>`);
+    await new Promise(r => setTimeout(r, 0)); // let the grid paint between pages
+  }
+  paintScans();
+}
+// coming back from analyzing one page: what is saved has changed underneath us
+function reopenScans(ctx) {
+  scanCtx = ctx;
+  const saved = savedSrcKeys();
+  for (const it of ctx.items) it.saved = saved.has(it.key);
+  paintScans();
+  $("scans-title").textContent = ctx.title;
+  $("scans").classList.add("on");
+}
+async function openScanPage(n) {
+  const ctx = scanCtx;
+  $("scans-note").textContent = `Opening page ${n}…`;
+  try {
+    const canvas = await ctx.render(n, 1600);
+    $("scans").classList.remove("on");
+    useSource(canvas, ctx.t, { drive: ctx.drive, page: n, pages: ctx.pages, srcKey: srcKeyOf(ctx.key, n), scan: ctx });
+  } catch (e) { $("scans-note").textContent = "Couldn't render that page: " + e.message; }
+}
+// analyze and save without the review UI — the batch path
+function analyzeAndSave(canvas, t, srcKey) {
+  const r = analyze(canvas, { mode: prefs.mode, style: prefs.style, script: prefs.script });
+  if (r.error) return { error: r.error };
+  const results = {};
+  let match = null;
+  if (r.mirror) {
+    results[prefs.hand] = r.mirror.dom.scores;
+    results[other(prefs.hand)] = r.mirror.non.scores;
+    match = r.mirror.match;
+  } else results[prefs.hand] = r.metrics.scores;
+  const id = newId(), s = loadSessions();
+  s.push({
+    id, t, kind: "page", style: prefs.style, mode: prefs.mode, script: prefs.script,
+    durationMin: null, results, match, projectId: $("save-project").value || undefined,
+    srcKey, hash: pageHash(canvas),
+  });
+  saveSessions(s);
+  saveThumb(id, r.canvas, s);
+  return { id };
+}
+let importing = false;
+$("scans-import").onclick = async () => {
+  if (!scanCtx || importing) { importing = false; return; }
+  const todo = scanCtx.items.filter(it => !it.saved && !it.dupOf);
+  importing = true;
+  $("scans-import").textContent = "Stop";
+  let done = 0, failed = 0;
+  for (const it of todo) {
+    if (!importing) break;
+    $("scans-note").textContent = `Importing page ${it.n}… (${done} of ${todo.length} done)`;
+    try {
+      const canvas = await scanCtx.render(it.n, 1600);
+      const res = analyzeAndSave(canvas, scanCtx.t, it.key);
+      if (res.error) failed++; else { it.saved = true; done++; }
+    } catch (e) { failed++; }
+    await new Promise(r => setTimeout(r, 0));
+  }
+  importing = false;
+  paintScans();
+  $("scans-note").insertAdjacentHTML("beforeend",
+    `<br><b>Imported ${done} page${done === 1 ? "" : "s"}.</b>` +
+    (failed ? ` ${failed} couldn't be read as handwriting and were skipped.` : ""));
+  renderAll();
+  if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
+};
+$("scans-close").onclick = () => { importing = false; scanCtx = null; $("scans").classList.remove("on"); };
 
 // ---------- OCR button ----------
 $("ocr-btn").onclick = async () => {
@@ -3039,7 +3327,8 @@ $("save-btn").onclick = () => {
   prefs.lastProject = projectId || ""; // most people work through one book at a time
   savePrefs();
   s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, script: prefs.script,
-    durationMin: +$("dur").value || null, results, match, projectId });
+    durationMin: +$("dur").value || null, results, match, projectId,
+    srcKey: cur.srcKey, hash: cur.hash });
   saveSessions(s);
   saveThumb(id, cur.r.canvas, s); // after the push, so pruning sees the new session
   if (cur.drive) { // remember which scans are already logged, per page
@@ -3241,6 +3530,67 @@ if (location.search.includes("selftest")) {
   pass = check("sync: tombstone beats a remote copy", m3.length === 1 && m3[0].id === "a") && pass;
   pass = check("sync: deleted session stays deleted", mergeSessions([], [S("z", 1)], [{ id: "z", at: 9 }]).length === 0) && pass;
   pass = check("sync: tombstones dedupe", mergeTombs([{ id: "a", at: 1 }], [{ id: "a", at: 2 }, { id: "b", at: 3 }]).length === 2) && pass;
+
+  // --- duplicate detection ---
+  // Shaped like what actually gets hashed: a portrait page, mostly white, a dozen written
+  // lines. `jitter` re-scans the SAME sheet slightly shifted, as a second pass through a
+  // scanner would. A sparse 4-line fixture is not representative and hides the real behaviour.
+  const DUP_WORDS = ["the quick brown fox", "jumps over lazy dogs", "practice makes perfect",
+    "steady even strokes now", "one more careful line", "handwriting sample text",
+    "morning pages entry here", "copying out a chapter"];
+  const dupPage = (seed, jitter = 0) => {
+    const c = document.createElement("canvas");
+    c.width = 612; c.height = 792;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, 612, 792);
+    x.fillStyle = "#111"; x.font = "26px Georgia, serif";
+    const rnd = n => { const v = Math.sin(seed * 97 + n * 31) * 10000; return v - Math.floor(v); };
+    for (let i = 0; i < 14; i++)
+      x.fillText(DUP_WORDS[(seed + i) % 8] + " " + DUP_WORDS[(seed * 3 + i * 5) % 8],
+        60 + (jitter ? (rnd(i) - 0.5) * jitter : 0), 80 + i * 48 + (jitter ? (rnd(i + 50) - 0.5) * jitter : 0));
+    return pageHash(c);
+  };
+  const hashOf = (seed) => dupPage(seed);
+  const hA = hashOf(1), hA2 = hashOf(1);
+  pass = check("dupes: hash is " + HASH_BITS + " bits of hex, got " + hA.length + " chars",
+    hA.length === HASH_BITS / 4 && /^[0-9a-f]+$/.test(hA)) && pass;
+  pass = check("dupes: the same page hashes the same", hA === hA2 && hashDistance(hA, hA2) === 0) && pass;
+  const hB = hashOf(2);
+  pass = check("dupes: a different page is far away, distance " + hashDistance(hA, hB),
+    hashDistance(hA, hB) > DUP_BITS) && pass;
+  pass = check("dupes: identical pages read as duplicates", isDup(hA, hA2)) && pass;
+  pass = check("dupes: different pages do not", !isDup(hA, hB)) && pass;
+  pass = check("dupes: a missing hash is never a duplicate",
+    hashDistance(null, hA) === HASH_BITS && !isDup(undefined, hA)) && pass;
+  pass = check("dupes: an old 64-bit hash can't accidentally match a 256-bit one",
+    hashDistance("0123456789abcdef", hA) === HASH_BITS) && pass;
+  const dupSessions = [{ id: "s1", t: 1000, hash: hA }, { id: "s2", t: 2000, hash: hB }];
+  pass = check("dupes: finds the matching saved session",
+    findDuplicate(hA2, dupSessions).session.id === "s1") && pass;
+  pass = check("dupes: a genuinely new page matches nothing",
+    findDuplicate(hashOf(5), dupSessions) === null) && pass;
+  // the case the whole feature exists for: the same sheet fed through the scanner twice
+  const hRescan = dupPage(1, 3);
+  pass = check("dupes: a re-scan of the same sheet is caught, distance " + hashDistance(hA, hRescan),
+    isDup(hA, hRescan)) && pass;
+  pass = check("dupes: and it is far clear of the threshold", hashDistance(hA, hRescan) < DUP_BITS * 0.75) && pass;
+  const spread = [2, 3, 4, 5, 6, 7].map(n => hashDistance(hA, hashOf(n)));
+  pass = check("dupes: every different page is well past the threshold, min " + Math.min(...spread),
+    Math.min(...spread) > DUP_BITS * 1.5) && pass;
+  pass = check("dupes: a session can't be its own duplicate",
+    findDuplicate(hA, dupSessions, "s1") === null) && pass;
+  pass = check("dupes: sessions with no hash are skipped",
+    findDuplicate(hA, [{ id: "x", t: 1 }]) === null) && pass;
+
+  // --- source keys / per-page tracking ---
+  pass = check("scans: source keys are per PAGE, not per file",
+    srcKeyOf("FILE1", 3) === "FILE1#3" && srcKeyOf("FILE1", 3) !== srcKeyOf("FILE1", 4)) && pass;
+  const skS = [{ id: "a", srcKey: "F#1" }, { id: "b", srcKey: "F#7" }, { id: "c" }];
+  const sk = savedSrcKeys(skS);
+  pass = check("scans: only saved pages count as saved",
+    sk.has("F#1") && sk.has("F#7") && !sk.has("F#2") && sk.size === 2) && pass;
+  pass = check("scans: one saved page does not mark a whole batch done",
+    [...sk].filter(k => k.startsWith("F#")).length === 2) && pass;
 
   // --- printing vs cursive, and slant-invariance ---
   // Regression: gaps used to be projected straight down, so a slanted hand smeared its letters
@@ -3650,6 +4000,94 @@ if (location.search.includes("selftest")) {
   document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
   $("selftest").textContent = document.title + ` (${out.length} checks)\n` + out.join("\n");
   showTab("setup");
+
+  if (location.search.includes("pdf")) { // ?selftest=pdf — pulls pdf.js from the CDN, so opt-in
+    document.title = "SELFTEST RUNNING";
+    // A minimal but valid PDF with computed xref offsets, so pdf.js parses it properly rather
+    // than falling back to recovery. Page 12 deliberately repeats page 5's content — that is
+    // the double-feed a batch scanner actually produces.
+    const buildPdf = n => {
+      const objs = {}, kids = [];
+      objs[3] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>";
+      for (let i = 0; i < n; i++) {
+        const pn = 4 + i * 2, cn = 5 + i * 2;
+        kids.push(pn + " 0 R");
+        objs[pn] = `<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R>>>>/Contents ${cn} 0 R>>`;
+        // page 12 is byte-for-byte page 5 — the double-feed a batch scanner really produces.
+        // Every other page gets substantially different words, because two pages that differ
+        // by one digit ARE near-identical images and should be treated as such.
+        const label = (i + 1 === 12 ? 5 : i + 1);
+        const words = ["the quick brown fox", "jumps over lazy dogs", "practice makes perfect",
+          "steady even strokes now", "one more careful line", "handwriting sample text",
+          "morning pages entry here", "copying out a chapter"];
+        // Word choice alone repeats every 8 pages, which would make pages 1/9/17/25/33
+        // genuinely identical. Varying the line count and indent too gives a combined period
+        // of lcm(8,6,5) = 120, so all 40 pages really are different — and page 12, which
+        // reuses page 5's label, is byte-identical to it.
+        const nLines = 11 + (label % 6), indent = 50 + (label % 5) * 25;
+        const body = Array.from({ length: nLines }, (_, k) =>
+          `BT /F1 26 Tf ${indent} ${740 - k * 52} Td (${words[(label + k) % 8]} ${words[(label * 3 + k * 5) % 8]}) Tj ET`).join("\n");
+        objs[cn] = `<</Length ${body.length}>>\nstream\n${body}\nendstream`;
+      }
+      objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
+      objs[2] = `<</Type/Pages/Kids[${kids.join(" ")}]/Count ${n}>>`;
+      const nums = Object.keys(objs).map(Number).sort((a, b) => a - b);
+      let pdf = "%PDF-1.4\n";
+      const offset = {};
+      for (const k of nums) { offset[k] = pdf.length; pdf += `${k} 0 obj\n${objs[k]}\nendobj\n`; }
+      const xref = pdf.length;
+      pdf += `xref\n0 ${nums.length + 1}\n0000000000 65535 f \n`;
+      for (const k of nums) pdf += String(offset[k]).padStart(10, "0") + " 00000 n \n";
+      pdf += `trailer\n<</Size ${nums.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`;
+      return new Uint8Array([...pdf].map(c => c.charCodeAt(0))).buffer;
+    };
+    (async () => {
+      const N = 40;
+      let perf = "";
+      try {
+        const buf = buildPdf(N);
+        const t0 = performance.now();
+        const doc = await pdfDocFor("selftest-batch", buf);
+        const parseMs = performance.now() - t0;
+        check("pdf: a 40-page batch parses, got " + doc.numPages + " pages", doc.numPages === N);
+        const t1 = performance.now();
+        const same = await pdfDocFor("selftest-batch", buf);
+        const cacheMs = performance.now() - t1;
+        check("pdf: the same document is not re-parsed per page", same === doc);
+        check(`pdf: cache hit is instant (${cacheMs.toFixed(1)}ms vs ${parseMs.toFixed(0)}ms to parse)`, cacheMs < 5);
+        // render every page as the gallery does
+        const t2 = performance.now();
+        const hashes = [];
+        for (let n = 1; n <= N; n++) hashes.push(pageHash(await pdfRender(doc, n, 240)));
+        const allMs = performance.now() - t2;
+        check(`pdf: all ${N} thumbnails rendered in ${(allMs / 1000).toFixed(1)}s`, hashes.length === N);
+        check("pdf: a whole batch renders in reasonable time", allMs < 40000);
+        perf = `[parse ${parseMs.toFixed(0)}ms, ${N} thumbs ${(allMs / 1000).toFixed(1)}s, ${(allMs / N).toFixed(0)}ms/page]`;
+        const thumb = await pdfRender(doc, 1, 240);
+        check("pdf: thumbnails are small, got " + thumb.width + "px", thumb.width > 100 && thumb.width <= 240);
+        const full = await pdfRender(doc, 1, 1600);
+        check("pdf: analysis renders full size, got " + full.width + "px", full.width > 1000 && full.width <= 1600);
+        check("pdf: a full-size page still analyzes",
+          !analyze(full, { mode: "single", style: "print", script: "latin" }).error);
+        // page 12 was built to repeat page 5; nothing else should pair up
+        const pairs = [];
+        for (let i = 0; i < N; i++)
+          for (let j = i + 1; j < N; j++) if (isDup(hashes[i], hashes[j])) pairs.push([i + 1, j + 1]);
+        check("pdf: the planted duplicate is found (page 5 = page 12)",
+          pairs.some(p => p[0] === 5 && p[1] === 12));
+        check("pdf: and it is the ONLY pair, got " + JSON.stringify(pairs), pairs.length === 1);
+        check("pdf: asking past the end clamps instead of throwing",
+          (await pdfRender(doc, N + 99, 120)).width > 0);
+        check("pdf: page 0 clamps to the first page", (await pdfRender(doc, 0, 120)).width > 0);
+      } catch (e) { check("pdf: threw — " + e.message, false); }
+      // The title carries the verdict: a network-dependent run has to be polled from outside
+      // (--virtual-time-budget fast-forwards past real fetches), and the DevTools target list
+      // exposes the title and nothing else.
+      const bad = out.filter(l => l.startsWith("FAIL"));
+      document.title = bad.length ? "SELFTEST FAIL: " + bad[0].slice(5) : `SELFTEST PASS (${out.length} checks) ${perf}`;
+      $("selftest").textContent = document.title + "\n" + out.join("\n");
+    })();
+  }
 
   if (location.search.includes("ocr")) { // ?selftest=ocr — hits the network, so opt-in
     document.title = "SELFTEST RUNNING";
