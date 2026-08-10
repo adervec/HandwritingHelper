@@ -129,6 +129,10 @@ file picker; no Google account needed either way — and you get a gallery of ev
     same batch (scanners double-feed) or one matching a page already in your history.</li>
   <li><b>Import all new</b> analyzes and files every page that is neither saved nor a duplicate,
     using your current hand, style and alphabet settings. You can stop it part-way.</li>
+  <li><b>It opens instantly.</b> Previews are rendered only as you scroll to them, and kept
+    afterwards, so a forty-page batch opens in a few milliseconds instead of grinding through
+    every page first — and opening it again later costs nothing at all. Importing is the one
+    action that does have to look at every page, and it says which one it is on.</li>
 </ul>
 <div class="card tip">
   <h3>How a duplicate is recognised</h3>
@@ -140,6 +144,11 @@ file picker; no Google account needed either way — and you get a gallery of ev
   anything at or under 32 is called a duplicate.</p>
   <p>It is a warning, never a block. If you really did write the same drill twice and want both
   logged, save it anyway.</p>
+  <p>The fingerprint is taken once, at a fixed size, and kept with the page's preview. That
+  matters more than it sounds: the same page fingerprinted from a small preview and from a
+  full-size render came out 26 bits apart, most of a 32-bit budget, which would have hidden
+  genuine re-scans. Measuring once and reusing the answer removes the problem rather than
+  papering over it.</p>
 </div>
 
 <h2 id="anatomy">2 · The anatomy of a written line</h2>

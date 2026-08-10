@@ -60,13 +60,18 @@ versus Latin, because the geometry genuinely doesn't separate them. It never swi
 **Review a whole scan batch at once.** The Drive scanner batches a stack of pages into one PDF,
 so opening a PDF — from Drive or straight off your phone, no account needed — gives you a gallery
 of every page. Pages already saved are dimmed (tracked per *page*, so a 40-page batch with one page
-logged isn't marked finished), duplicates are flagged, and "Import all new" does the rest. The
-document is parsed once rather than per page: a 40-page batch is 160ms to parse and 17ms per
-thumbnail.
+logged isn't marked finished), duplicates are flagged, and "Import all new" does the rest.
+
+Opening is lazy and cached: a 40-page gallery opens in **3ms rendering zero pages**, previews arrive
+as you scroll and are kept afterwards, so re-opening is free. The document itself is parsed once
+rather than per page (160ms, then ~17ms a page when a preview is actually needed).
 
 **Duplicate detection.** Every page carries a 256-bit layout fingerprint (a 16x16 difference hash).
 Re-scanning a page you've already logged is flagged before you save it twice, whether it repeats an
-earlier page of the same batch or one from months ago. The resolution and threshold were measured,
+earlier page of the same batch or one from months ago. The fingerprint is computed once at a fixed
+width and stored with the preview — the same page fingerprinted from a thumbnail and from a
+full-size render came out 26 bits apart, most of the 32-bit budget, which would have masked real
+duplicates. The resolution and threshold were measured,
 not guessed — at 64 bits a re-scan and a different page are 5 and 10 bits apart, which is no
 separation at all; at 256 bits they're 13 and 70.
 

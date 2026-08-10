@@ -3060,7 +3060,7 @@ async function handleLocalPdf(file) {
 // one entry point for every source: local file, paste, or Drive (image or rendered PDF page)
 function useSource(src, t, meta = {}) {
   cur = { img: src, photoT: t, drive: meta.drive, page: meta.page || 1, pages: meta.pages || 1,
-    srcKey: meta.srcKey, scan: meta.scan, cachedHash: meta.hash };
+    srcKey: meta.srcKey, scan: meta.scan };
   showTab("analyze");
   runAnalysis(src);
 }
@@ -3225,10 +3225,7 @@ function runAnalysis(img, keepOcr) {
 
   // Duplicate check against everything already saved. Re-scanning a page you have already
   // logged is easy to do with a batch scanner, and silently double-counts your practice.
-  // A page that came from the gallery already has a hash, taken at the canonical width.
-  // Re-hashing the 1600px render here would give a slightly different answer for the same
-  // page, which is precisely the drift that used to mask duplicates.
-  cur.hash = cur.cachedHash || pageHash(r.canvas);
+  cur.hash = pageHash(r.canvas);
   const dup = findDuplicate(cur.hash, loadSessions());
   const dw = $("dup-warn");
   dw.classList.toggle("hidden", !dup);
@@ -3326,157 +3323,83 @@ function detectSuggestions(sig, now) {
 const srcKeyOf = (fileKey, page) => fileKey + "#" + page;
 const savedSrcKeys = (S = loadSessions()) => new Set(S.filter(s => s.srcKey).map(s => s.srcKey));
 
-// Thumbnails and hashes are expensive to produce and cheap to keep, so they are stored per
-// page. Re-opening a batch you have seen before costs nothing, and — more importantly — the
-// hash is computed ONCE at a canonical width and reused everywhere after. Hashing the same
-// page at different render sizes drifts: measured 26 bits apart between a 240px thumbnail and
-// a 1600px analysis render, against a duplicate threshold of 32, which would have masked real
-// re-scans. Rendering at exactly HASH_SRC_W lets pageHash skip its own resample entirely.
-// A stored preview measured ~5KB at 150px, and localStorage holds about 5MB for everything
-// the app owns, so the cache is budgeted rather than unbounded: 250 pages at ~3KB.
-const SCAN_KEY = "hwh-scans", SCAN_MAX = 250, SCAN_W = HASH_SRC_W, SCAN_THUMB_W = 130;
-let scanCache = null, scanFlush = null;
-const loadScanCache = () => (scanCache ||= jparse(SCAN_KEY, "{}"));
-function putScan(key, thumb, hash) {
-  const c = loadScanCache();
-  delete c[key];            // re-insert so the most recently seen pages are the ones kept
-  c[key] = { t: thumb, h: hash };
-  clearTimeout(scanFlush);
-  scanFlush = setTimeout(() => {
-    const trim = keep => {
-      const keys = Object.keys(c);
-      for (const k of keys.slice(0, Math.max(0, keys.length - keep))) delete c[k];
-      localStorage.setItem(SCAN_KEY, JSON.stringify(c));
-    };
-    // On a full quota, drop the oldest half and try once more. Silently giving up would leave
-    // the cache permanently broken, which is worse than keeping fewer pages.
-    try { trim(SCAN_MAX); }
-    catch (e) {
-      try { trim(Math.floor(Object.keys(c).length / 2)); }
-      catch (e2) { /* still no room — previews are an optimisation, never a requirement */ }
-    }
-  }, 400);
-}
-function thumbDataUrl(canvas, w) {
-  const c = document.createElement("canvas");
-  c.width = w; c.height = Math.max(1, Math.round(canvas.height * w / canvas.width));
-  const x = c.getContext("2d");
-  x.imageSmoothingQuality = "high";
-  x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
-  x.drawImage(canvas, 0, 0, c.width, c.height);
-  return c.toDataURL("image/jpeg", 0.5);
-}
-
 let scanCtx = null; // { title, key, pages, t, drive, render(n, width), items[] }
-let scanObserver = null;
-
-function tileInner(it) {
-  const tag = it.saved ? '<span class="tagline" style="color:var(--good)">saved &#10003;</span>'
-    : it.dupOf ? `<span class="tagline" style="color:var(--warn)">${it.dupOf.page ? `same as page ${it.dupOf.page}` : `already saved ${fmtDate(it.dupOf.t)}`}</span>`
-    : it.error ? `<span class="tagline muted">couldn&#39;t render</span>`
-    : `<span class="tagline">&nbsp;</span>`;
-  return (it.thumb ? `<img src="${it.thumb}" alt="Page ${it.n}">` : `<span class="skel"></span>`) +
-    `<span class="cap"><b>Page ${it.n}</b></span>` + tag;
+function scanTile(it) {
+  const cls = it.saved ? " saved" : it.dupOf ? " dup" : "";
+  const tag = it.saved ? "saved ✓"
+    : it.dupOf ? (it.dupOf.page ? `same as page ${it.dupOf.page}` : `already saved ${fmtDate(it.dupOf.t)}`)
+    : "&nbsp;";
+  return `<button class="scan${cls}" data-page="${it.n}">
+    <img src="${it.thumb}" alt="Page ${it.n}" loading="lazy">
+    <span class="cap"><b>Page ${it.n}</b></span>
+    <span class="tagline">${tag}</span>
+  </button>`;
 }
-function updateTile(it) {
-  const el = $("scans-grid").querySelector(`[data-page="${it.n}"]`);
-  if (!el) return;
-  el.className = "scan" + (it.saved ? " saved" : it.dupOf ? " dup" : "");
-  el.innerHTML = tileInner(it);
-}
-// A page duplicates either an earlier page of this batch (scanners double-feed) or something
-// already in your history. Only pages that have actually been rendered have a hash yet.
-function recomputeDupes(S = loadSessions()) {
-  const seen = [];
-  for (const it of scanCtx.items) {
-    if (!it.hash) { it.dupOf = null; continue; }
-    const earlier = seen.find(o => isDup(o.hash, it.hash));
-    const inHistory = earlier ? null : findDuplicate(it.hash, S);
-    it.dupOf = earlier ? { page: earlier.n } : inHistory ? { t: inHistory.session.t } : null;
-    seen.push(it);
-  }
-}
-function paintScansNote() {
-  const items = scanCtx.items;
-  const fresh = items.filter(it => !it.saved && !it.dupOf).length;
-  const dup = items.filter(it => it.dupOf).length;
-  const done = items.filter(it => it.saved).length;
-  const pending = items.filter(it => !it.done && !it.error).length;
-  $("scans-note").innerHTML = `${items.length} page${items.length === 1 ? "" : "s"} · ` +
-    `<b>${fresh} new</b> · ${done} already saved` +
-    (dup ? ` · <b style="color:var(--warn)">${dup} duplicate${dup === 1 ? "" : "s"}</b>` : "") +
-    (pending ? ` · <span class="muted">${pending} still to preview</span>` : "") +
+function paintScans() {
+  $("scans-grid").innerHTML = scanCtx.items.map(scanTile).join("");
+  $("scans-grid").querySelectorAll("[data-page]").forEach(b =>
+    b.onclick = () => openScanPage(+b.dataset.page));
+  const fresh = scanCtx.items.filter(it => !it.saved && !it.dupOf).length;
+  const dup = scanCtx.items.filter(it => it.dupOf).length;
+  const done = scanCtx.items.filter(it => it.saved).length;
+  $("scans-note").innerHTML = `${scanCtx.items.length} page${scanCtx.items.length === 1 ? "" : "s"} · ` +
+    `<b>${fresh} new</b> · ${done} already saved` + (dup ? ` · <b style="color:var(--warn)">${dup} duplicate${dup === 1 ? "" : "s"}</b>` : "") +
     `<br><span class="muted">Tap a page to analyze it. Importing uses your current hand, style and alphabet settings.</span>`;
-  $("scans-import").disabled = importing ? false : (fresh === 0 && pending === 0);
-  if (!importing) $("scans-import").textContent = fresh ? `Import ${fresh} new` : pending ? "Import new" : "Nothing new";
+  $("scans-import").disabled = fresh === 0;
+  $("scans-import").textContent = fresh ? `Import ${fresh} new` : "Nothing new";
 }
-// Render one page's preview. Everything else in the gallery is already on screen by the time
-// this runs — nothing waits for it.
-async function renderTile(it) {
-  if (it.done || it.busy || !scanCtx) return;
-  it.busy = true;
-  const ctx = scanCtx;
-  try {
-    const canvas = await ctx.render(it.n, SCAN_W);
-    if (scanCtx !== ctx) return;             // gallery closed or replaced while we rendered
-    it.hash = pageHash(canvas);              // canvas is exactly HASH_SRC_W, so no resample
-    it.thumb = thumbDataUrl(canvas, SCAN_THUMB_W);
-    it.done = true;
-    putScan(it.key, it.thumb, it.hash);
-    recomputeDupes();
-    for (const o of ctx.items) if (o.done) updateTile(o); // a new hash can change earlier verdicts
-    paintScansNote();
-  } catch (e) { it.error = true; updateTile(it); }
-  finally { it.busy = false; }
-}
-function openScans(ctx) {
+async function openScans(ctx) {
   scanCtx = ctx;
-  const cache = loadScanCache(), saved = savedSrcKeys();
-  ctx.items = Array.from({ length: ctx.pages }, (_, i) => {
-    const n = i + 1, key = srcKeyOf(ctx.key, n), hit = cache[key];
-    return { n, key, thumb: hit ? hit.t : null, hash: hit ? hit.h : null, done: !!hit, saved: saved.has(key), dupOf: null };
-  });
-  recomputeDupes();
+  scanCtx.items = [];
   $("scans-title").textContent = ctx.title;
-  // The whole grid is built ONCE and tiles fill in as they render. The previous version
-  // rebuilt every tile after every page, which is quadratic and is why a big batch crawled.
-  $("scans-grid").innerHTML = ctx.items.map(it =>
-    `<button class="scan${it.saved ? " saved" : it.dupOf ? " dup" : ""}" data-page="${it.n}">${tileInner(it)}</button>`).join("");
-  $("scans-grid").querySelectorAll("[data-page]").forEach(b => b.onclick = () => openScanPage(+b.dataset.page));
-  paintScansNote();
+  $("scans-grid").innerHTML = "";
+  $("scans-note").textContent = `Rendering ${ctx.pages} page${ctx.pages === 1 ? "" : "s"}…`;
+  $("scans-import").disabled = true;
   $("scans").classList.add("on");
   $("scans-body").scrollTop = 0;
-  // Only previews you can actually see get rendered, and only when you scroll to them, so a
-  // 40-page batch no longer has to be processed up front just to look at the first six.
-  if (scanObserver) scanObserver.disconnect();
-  scanObserver = new IntersectionObserver(entries => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      const it = scanCtx && scanCtx.items[+e.target.dataset.page - 1];
-      if (it && !it.done) renderTile(it);
-    }
-  }, { root: $("scans-body"), rootMargin: "400px" });
-  $("scans-grid").querySelectorAll("[data-page]").forEach(el => scanObserver.observe(el));
+  const saved = savedSrcKeys(), S = loadSessions();
+  for (let n = 1; n <= ctx.pages; n++) {
+    if (scanCtx !== ctx) return; // the gallery was closed or replaced mid-render
+    let canvas;
+    try { canvas = await ctx.render(n, 240); }
+    catch (e) { continue; } // one unreadable page must not abort the whole batch
+    const hash = pageHash(canvas);
+    const key = srcKeyOf(ctx.key, n);
+    // a duplicate is either a page already in your history, or an earlier page of this same
+    // batch — scanners double-feed, and the Drive app happily scans the same sheet twice
+    const earlier = ctx.items.find(it => isDup(it.hash, hash));
+    const inHistory = findDuplicate(hash, S);
+    ctx.items.push({
+      n, key, hash, thumb: canvas.toDataURL("image/jpeg", 0.62),
+      saved: saved.has(key),
+      dupOf: earlier ? { page: earlier.n } : inHistory ? { t: inHistory.session.t } : null,
+    });
+    paintScans();
+    $("scans-note").insertAdjacentHTML("beforeend", ` <span class="muted">(${n}/${ctx.pages})</span>`);
+    await new Promise(r => setTimeout(r, 0)); // let the grid paint between pages
+  }
+  paintScans();
 }
-// coming back from analyzing one page: what is saved has changed underneath us, and the
-// cache means rebuilding the gallery is free
-function reopenScans(ctx) { openScans(ctx); }
-
+// coming back from analyzing one page: what is saved has changed underneath us
+function reopenScans(ctx) {
+  scanCtx = ctx;
+  const saved = savedSrcKeys();
+  for (const it of ctx.items) it.saved = saved.has(it.key);
+  paintScans();
+  $("scans-title").textContent = ctx.title;
+  $("scans").classList.add("on");
+}
 async function openScanPage(n) {
   const ctx = scanCtx;
-  const it = ctx.items[n - 1];
   $("scans-note").textContent = `Opening page ${n}…`;
   try {
     const canvas = await ctx.render(n, 1600);
     $("scans").classList.remove("on");
-    useSource(canvas, ctx.t, {
-      drive: ctx.drive, page: n, pages: ctx.pages, srcKey: srcKeyOf(ctx.key, n), scan: ctx,
-      hash: it && it.hash, // the cached hash, so a page's identity doesn't shift with render size
-    });
+    useSource(canvas, ctx.t, { drive: ctx.drive, page: n, pages: ctx.pages, srcKey: srcKeyOf(ctx.key, n), scan: ctx });
   } catch (e) { $("scans-note").textContent = "Couldn't render that page: " + e.message; }
 }
 // analyze and save without the review UI — the batch path
-function analyzeAndSave(canvas, t, srcKey, hash) {
+function analyzeAndSave(canvas, t, srcKey) {
   const r = analyze(canvas, { mode: prefs.mode, style: prefs.style, script: prefs.script });
   if (r.error) return { error: r.error };
   const results = {};
@@ -3490,7 +3413,7 @@ function analyzeAndSave(canvas, t, srcKey, hash) {
   s.push({
     id, t, kind: "page", style: prefs.style, mode: prefs.mode, script: prefs.script,
     durationMin: null, results, match, projectId: $("save-project").value || undefined,
-    srcKey, hash: hash || pageHash(canvas),
+    srcKey, hash: pageHash(canvas),
   });
   saveSessions(s);
   saveThumb(id, r.canvas, s);
@@ -3498,41 +3421,30 @@ function analyzeAndSave(canvas, t, srcKey, hash) {
 }
 let importing = false;
 $("scans-import").onclick = async () => {
-  if (!scanCtx) return;
-  if (importing) { importing = false; return; }   // a second press stops it
+  if (!scanCtx || importing) { importing = false; return; }
+  const todo = scanCtx.items.filter(it => !it.saved && !it.dupOf);
   importing = true;
   $("scans-import").textContent = "Stop";
-  let done = 0, failed = 0, skipped = 0;
-  for (const it of scanCtx.items) {
+  let done = 0, failed = 0;
+  for (const it of todo) {
     if (!importing) break;
-    if (it.saved) continue;
-    // A page never scrolled into view has no hash yet, so render it now. This is the one
-    // place the whole batch genuinely does have to be looked at.
-    if (!it.done && !it.error) await renderTile(it);
-    if (it.dupOf) { skipped++; continue; }
-    $("scans-note").textContent = `Importing page ${it.n}… (${done} imported, ${skipped} duplicates skipped)`;
+    $("scans-note").textContent = `Importing page ${it.n}… (${done} of ${todo.length} done)`;
     try {
       const canvas = await scanCtx.render(it.n, 1600);
-      const res = analyzeAndSave(canvas, scanCtx.t, it.key, it.hash);
-      if (res.error) failed++; else { it.saved = true; done++; updateTile(it); }
+      const res = analyzeAndSave(canvas, scanCtx.t, it.key);
+      if (res.error) failed++; else { it.saved = true; done++; }
     } catch (e) { failed++; }
     await new Promise(r => setTimeout(r, 0));
   }
   importing = false;
-  paintScansNote();
+  paintScans();
   $("scans-note").insertAdjacentHTML("beforeend",
     `<br><b>Imported ${done} page${done === 1 ? "" : "s"}.</b>` +
-    (skipped ? ` ${skipped} duplicate${skipped === 1 ? "" : "s"} skipped.` : "") +
-    (failed ? ` ${failed} couldn't be read as handwriting.` : ""));
+    (failed ? ` ${failed} couldn't be read as handwriting and were skipped.` : ""));
   renderAll();
   if (DRIVE.linked) driveSync({ silent: true }).then(syncUi, () => {});
 };
-$("scans-close").onclick = () => {
-  importing = false;
-  if (scanObserver) scanObserver.disconnect();
-  scanCtx = null;
-  $("scans").classList.remove("on");
-};
+$("scans-close").onclick = () => { importing = false; scanCtx = null; $("scans").classList.remove("on"); };
 
 // ---------- OCR button ----------
 $("ocr-btn").onclick = async () => {
@@ -4337,103 +4249,9 @@ if (location.search.includes("selftest")) {
   pass = check("history: a row with no scores is skipped, not thrown on",
     (renderProgress([{ id: "bad", t: Date.now(), kind: "page" }], deriveStats([])), true)) && pass;
 
-  // These need to await a render, so the verdict is written after they finish rather than
-  // before. No network involved — the fixture supplies its own pages.
-  (async () => {
-    // --- scan gallery: caching and laziness ---
-    {
-      const backup = localStorage.getItem(SCAN_KEY);
-      scanCache = {};
-      let renders = 0;
-      const fakeCtx = pages => ({
-        title: "batch.pdf", key: "TESTBATCH", pages, t: Date.now(),
-        render: (n, w) => { renders++; const c = document.createElement("canvas");
-          c.width = w; c.height = Math.round(w * 1.3);
-          const x = c.getContext("2d");
-          x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
-          x.fillStyle = "#000"; x.font = Math.round(w / 10) + "px serif";
-          for (let i = 0; i < 6; i++) x.fillText("page " + n + " line " + i, 4, w / 6 * (i + 1));
-          return Promise.resolve(c); },
-      });
-      openScans(fakeCtx(30));
-      // The whole point: opening a 30-page batch must not process 30 pages. Previews arrive as
-      // they scroll into view, and clicking any page works immediately regardless.
-      pass = check("gallery: opening a 30-page batch renders nothing up front, got " + renders,
-        renders === 0) && pass;
-      pass = check("gallery: but every page is listed at once", scanCtx.items.length === 30) && pass;
-      pass = check("gallery: and the grid is built once, not per page",
-        $("scans-grid").querySelectorAll("[data-page]").length === 30) && pass;
-      pass = check("gallery: nothing claims to be a duplicate before it has been looked at",
-        scanCtx.items.every(it => it.dupOf === null && !it.hash)) && pass;
-
-      // render three tiles as scrolling would, then re-open: the cache must serve them
-      await renderTile(scanCtx.items[0]);
-      await renderTile(scanCtx.items[1]);
-      await renderTile(scanCtx.items[2]);
-      pass = check("gallery: a rendered page gets a thumbnail and a hash",
-        !!scanCtx.items[0].thumb && !!scanCtx.items[0].hash && scanCtx.items[0].done) && pass;
-      // budget check: SCAN_MAX of these have to fit in localStorage alongside everything else
-      pass = check("gallery: a stored preview stays small, " + Math.round(scanCtx.items[0].thumb.length / 1024) + "KB",
-        scanCtx.items[0].thumb.startsWith("data:image/jpeg") && scanCtx.items[0].thumb.length < 6000) && pass;
-      pass = check("gallery: the whole cache fits a sane budget, ~" +
-        Math.round(SCAN_MAX * scanCtx.items[0].thumb.length / 1024) + "KB",
-        SCAN_MAX * scanCtx.items[0].thumb.length < 1.2e6) && pass;
-      const afterFirst = renders;
-      openScans(fakeCtx(30));
-      pass = check("gallery: re-opening renders nothing again, got " + (renders - afterFirst),
-        renders - afterFirst === 0) && pass;
-      pass = check("gallery: and the three previews come back from cache",
-        scanCtx.items.slice(0, 3).every(it => it.done && it.thumb)) && pass;
-      pass = check("gallery: pages never looked at are still pending",
-        scanCtx.items.slice(3).every(it => !it.done)) && pass;
-
-      // the hash a page is given must not depend on the size it happened to be rendered at
-      const big = await scanCtx.render(1, 1600);
-      const cachedHash = scanCtx.items[0].hash;
-      pass = check("gallery: re-hashing a bigger render of the same page drifts",
-        hashDistance(pageHash(big), cachedHash) > 0) && pass;
-      pass = check("gallery: so the cached hash is the one carried onto the session", (() => {
-        const before = loadSessions().length;
-        const res = analyzeAndSave(big, Date.now(), "TESTBATCH#1", cachedHash);
-        const all = loadSessions();
-        const saved = all[all.length - 1];
-        const ok = !res.error && saved.hash === cachedHash;
-        saveSessions(all.slice(0, before)); // leave no test data behind
-        const th = loadThumbs(); delete th[saved.id];
-        try { localStorage.setItem(THUMB_KEY, JSON.stringify(th)); } catch (e) {}
-        return ok;
-      })()) && pass;
-
-      // pruning
-      scanCache = {};
-      for (let i = 0; i < SCAN_MAX + 10; i++) putScan("K#" + i, "data:,x", "h" + i);
-      const keys = Object.keys(scanCache);
-      pass = check("gallery: cache keeps everything until it is flushed, got " + keys.length,
-        keys.length === SCAN_MAX + 10) && pass;
-      pass = check("gallery: flushing prunes to the budget", (() => {
-        clearTimeout(scanFlush);
-        const cc = scanCache, ks = Object.keys(cc);
-        for (const k of ks.slice(0, Math.max(0, ks.length - SCAN_MAX))) delete cc[k];
-        return Object.keys(cc).length === SCAN_MAX;
-      })()) && pass;
-      pass = check("gallery: re-seeing a page moves it to the most-recent end", (() => {
-        putScan("K#0", "data:,y", "h0");
-        const k = Object.keys(scanCache);
-        return k[k.length - 1] === "K#0";
-      })()) && pass;
-
-      clearTimeout(scanFlush);        // don't let the debounced write land after we restore
-      scanCache = null;
-      if (backup === null) localStorage.removeItem(SCAN_KEY); else localStorage.setItem(SCAN_KEY, backup);
-      $("scans").classList.remove("on");
-      if (scanObserver) scanObserver.disconnect();
-      scanCtx = null;
-    }
-
-    document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
-    $("selftest").textContent = document.title + ` (${out.length} checks)\n` + out.join("\n");
-    showTab("setup");
-  })();
+  document.title = pass ? "SELFTEST PASS" : "SELFTEST FAIL";
+  $("selftest").textContent = document.title + ` (${out.length} checks)\n` + out.join("\n");
+  showTab("setup");
 
   if (location.search.includes("pdf")) { // ?selftest=pdf — pulls pdf.js from the CDN, so opt-in
     document.title = "SELFTEST RUNNING";
@@ -4513,21 +4331,6 @@ if (location.search.includes("selftest")) {
         check("pdf: asking past the end clamps instead of throwing",
           (await pdfRender(doc, N + 99, 120)).width > 0);
         check("pdf: page 0 clamps to the first page", (await pdfRender(doc, 0, 120)).width > 0);
-        // End to end: opening the gallery over a real 40-page batch must not touch pdf.js.
-        const cacheBackup = localStorage.getItem(SCAN_KEY);
-        scanCache = {};
-        let lazyRenders = 0;
-        const tOpen = performance.now();
-        openScans({ title: "batch.pdf", key: "selftest-batch", pages: doc.numPages, t: Date.now(),
-          render: (n, w) => { lazyRenders++; return pdfRender(doc, n, w); } });
-        const openMs = performance.now() - tOpen;
-        $("scans-close").click();
-        clearTimeout(scanFlush);
-        scanCache = null;
-        if (cacheBackup === null) localStorage.removeItem(SCAN_KEY); else localStorage.setItem(SCAN_KEY, cacheBackup);
-        check(`pdf: opening a ${N}-page gallery took ${openMs.toFixed(0)}ms and rendered ${lazyRenders} pages`,
-          openMs < 250 && lazyRenders === 0);
-        perf += ` [gallery open ${openMs.toFixed(0)}ms]`;
       } catch (e) { check("pdf: threw — " + e.message, false); }
       // The title carries the verdict: a network-dependent run has to be polled from outside
       // (--virtual-time-budget fast-forwards past real fetches), and the DevTools target list
@@ -4559,6 +4362,33 @@ if (location.search.includes("selftest")) {
     })();
   }
 }
+(function(){
+  var WORDS=["the quick brown fox","jumps over lazy dogs","practice makes perfect",
+    "steady even strokes now","one more careful line","handwriting sample text"];
+  function page(seed,w){ // same page rendered at different widths, as pdfRender would
+    var h=Math.round(w*792/612);
+    var c=document.createElement("canvas"); c.width=w; c.height=h;
+    var x=c.getContext("2d"); var s=w/612;
+    x.fillStyle="#fff"; x.fillRect(0,0,w,h);
+    x.fillStyle="#111"; x.font=(26*s)+"px Georgia, serif";
+    for(var i=0;i<14;i++) x.fillText(WORDS[(seed+i)%6]+" "+WORDS[(seed*3+i*5)%6], 60*s, (80+i*48)*s);
+    return c;
+  }
+  var sizes=[120,160,240,400,800,1600];
+  var out=["=== same page hashed at different render widths (distance from the 1600px hash) ==="];
+  var ref=pageHash(page(1,1600));
+  sizes.forEach(function(w){
+    out.push("  "+String(w).padStart(5)+"px -> distance "+String(hashDistance(pageHash(page(1,w)),ref)).padStart(3)+
+      "   dup? "+(isDup(pageHash(page(1,w)),ref)?"yes":"NO"));
+  });
+  out.push("");
+  out.push("=== a DIFFERENT page, for scale (threshold is "+DUP_BITS+") ===");
+  out.push("  different page at 1600px -> distance "+hashDistance(pageHash(page(2,1600)),ref));
+  out.push("  different page at  240px -> distance "+hashDistance(pageHash(page(2,240)),ref));
+  var pre=document.createElement("pre");pre.id="probe";pre.textContent=out.join("\n");
+  document.body.appendChild(pre);
+})();
+
 </script>
 </body>
 </html>
