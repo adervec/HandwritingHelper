@@ -3729,6 +3729,17 @@ syncUi();
 if (DRIVE.linked) driveSync({ silent: true }).then(() => syncUi(), () => syncUi("Sign in again to resume syncing."));
 showTab(location.search.includes("selftest") ? "progress" : prefs.tab);
 
+// Let the app portal know (same-origin localStorage) that this app is installed.
+try {
+  const dm = ["standalone", "minimal-ui", "fullscreen", "window-controls-overlay"];
+  if (navigator.standalone || dm.some(m => matchMedia(`(display-mode: ${m})`).matches)) {
+    const k = "portal-installed";
+    const reg = JSON.parse(localStorage.getItem(k) || "{}");
+    reg["HandwritingHelper"] = Date.now();
+    localStorage.setItem(k, JSON.stringify(reg));
+  }
+} catch (e) {}
+
 // ---------- self-test (open index.html?selftest) ----------
 function synth(slantDeg, lines) {
   const c = document.createElement("canvas");
