@@ -669,6 +669,14 @@
   </div>
 
   <div class="card">
+    <div class="card-hd"><h2>Coach</h2><span class="d muted" style="font-size:12px">AI cowork sync</span></div>
+    <p class="subline">Hand your scores and drills to an agent through a folder — CoworkSyncHub, Claude Desktop, or a person — and its
+      reply shows here. Nothing is uploaded.</p>
+    <div id="coach-host"></div>
+    <pre id="coach-reply" class="hidden" style="white-space:pre-wrap;font:13px/1.5 inherit;margin:10px 0 0"></pre>
+  </div>
+
+  <div class="card">
     <div class="card-hd"><h2>History</h2><span class="d muted" style="font-size:12px" id="hist-note"></span></div>
     <div class="tablewrap">
       <table id="histtable" class="hidden">
@@ -2660,7 +2668,68 @@ $("np-add").onclick = () => {
 };
 
 // ---------- PROGRESS ----------
+// Folder cowork through the maker's shared panel (https://adervec.github.io/cowork.js, fs mode):
+// the panel drives a folder you pick; we hand it the stats + recent sessions as coach/request.json
+// and show whatever an agent writes to coach/reply.json.
+function loadCowork() {
+  if (window.cowork) return Promise.resolve(window.cowork);
+  const head = document.head || document.documentElement;
+  if (!head || typeof head.appendChild !== "function") return Promise.resolve(null);
+  return new Promise((res) => {
+    try {
+      const s = document.createElement("script"); s.src = "https://adervec.github.io/cowork.js"; s.async = true;
+      s.onload = () => res(window.cowork || null); s.onerror = () => res(null);
+      head.appendChild(s);
+    } catch { res(null); }
+  });
+}
+function coworkHash(text) { let h = 5381; for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0; return h.toString(16); }
+function coworkManifest(app) {
+  return { protocol: "cowork-manifest", protocolVersion: 1, app,
+    channels: [{ name: "coach", request: ["coach/request.json"], instructions: "coach/INSTRUCTIONS.md", replyPath: "coach/reply.json" }] };
+}
+function coworkEnvelope(protocol, payload) {
+  return { protocol, protocolVersion: 1, kind: "coach-request", generatedAt: new Date().toISOString(),
+    requestHash: coworkHash(JSON.stringify(payload)), payload };
+}
+function coworkReplyText(reply) {
+  return typeof reply === "string" ? reply : (reply && (reply.reply || (reply.payload && reply.payload.reply))) || JSON.stringify(reply, null, 2);
+}
+const COACH_INSTRUCTIONS = `# Handwriting Helper — coach channel
+
+Read \`coach/request.json\`: \`payload.stats\` (pages, drills, minutes, streaks, best score, hands) and
+\`payload.recent\` (the last 30 sessions: kind, minutes, style, mode, per-hand scores for slant, baseline,
+size, spacing, pen control, legibility, overall). Write \`coach/reply.json\`:
+
+\`\`\`json
+{ "requestHash": "<copy the request's requestHash verbatim>",
+  "reply": "<short, specific coaching in markdown: which score is the bottleneck, which two or three drills from the app to run this week and why, one thing that is clearly improving. Encouraging, no lectures.>" }
+\`\`\`
+`;
+let coachMounted = false;
+function mountCoach() {
+  const host = $("coach-host"), out = $("coach-reply");
+  if (!host || coachMounted) return;
+  coachMounted = true;
+  const show = text => { out.textContent = text; out.classList.toggle("hidden", !text); };
+  try { show(localStorage.getItem("hh-coach-reply") || ""); } catch { /* private mode */ }
+  loadCowork().then(cw => {
+    if (!cw || host.childElementCount) return;
+    cw.mount(host, {
+      app: "handwritinghelper", manifest: coworkManifest("handwritinghelper"),
+      files: () => {
+        const S = loadSessions(), st = deriveStats(S);
+        const { all, ...stats } = st; // eslint-disable-line no-unused-vars
+        const recent = S.slice(-30).map(s => ({ t: new Date(s.t).toISOString(), kind: s.kind, drillId: s.drillId, minutes: s.durationMin,
+          style: s.style, mode: s.mode, match: s.match, scores: s.results || null }));
+        return { "coach/request.json": coworkEnvelope("handwritinghelper-coach", { stats, recent }), "coach/INSTRUCTIONS.md": COACH_INSTRUCTIONS };
+      },
+      apply: (_ch, reply) => { const text = coworkReplyText(reply); try { localStorage.setItem("hh-coach-reply", text); } catch { /* quota */ } show(text); },
+    });
+  });
+}
 function renderProgress(S, st) {
+  mountCoach();
   const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
   $("stat-tiles").innerHTML = [
     [st.pages + st.drills, "Sessions", `${st.pages} pages · ${st.drills} drills`, null],
