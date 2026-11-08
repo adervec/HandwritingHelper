@@ -3223,8 +3223,8 @@ function coworkManifest(app) {
   return { protocol: "cowork-manifest", protocolVersion: 1, app,
     channels: [{ name: "coach", request: ["coach/request.json"], instructions: "coach/INSTRUCTIONS.md", replyPath: "coach/reply.json" }] };
 }
-function coworkEnvelope(protocol, payload) {
-  return { protocol, protocolVersion: 1, kind: "coach-request", generatedAt: new Date().toISOString(),
+function coworkEnvelope(protocol, payload, kind = "coach-request") {
+  return { protocol, protocolVersion: 1, kind, generatedAt: new Date().toISOString(),
     requestHash: coworkHash(JSON.stringify(payload)), payload };
 }
 function coworkReplyText(reply) {
@@ -3232,16 +3232,41 @@ function coworkReplyText(reply) {
 }
 const COACH_INSTRUCTIONS = `# Handwriting Helper — coach channel
 
-Read \`coach/request.json\`: \`payload.stats\` (pages, drills, minutes, streaks, best score, hands) and
-\`payload.recent\` (the last 30 sessions: kind, minutes, style, mode, per-hand scores for slant, baseline,
-size, spacing, pen control, legibility, overall). Write \`coach/reply.json\`:
+Read \`../BRIEF.md\` first: the app's own conclusions (streak, this week against last, per-hand averages,
+weakest metrics, weak letters, fatigue down the page, today's plan and program), with a Method section
+saying how each number is computed. Use those numbers as given. \`../recent.json\` has the last six
+weeks of sessions whole if you need the evidence; \`coach/request.json\` carries the same stats and the
+last 30 sessions. Write \`coach/reply.json\`:
 
 \`\`\`json
 { "requestHash": "<copy the request's requestHash verbatim>",
   "reply": "<short, specific coaching in markdown: which score is the bottleneck, which two or three drills from the app to run this week and why, one thing that is clearly improving. Encouraging, no lectures.>" }
 \`\`\`
 `;
-let coachMounted = false;
+// What an agent arriving cold in the folder reads first.
+const COWORK_README = `# Handwriting Helper — cowork folder
+
+A two-way bridge between the Handwriting Helper web app and an AI agent, through this folder. The app
+writes; an agent answers; nothing is uploaded anywhere. Protocol: CoworkSyncHub/COWORK-PROTOCOL.md.
+
+- \`BRIEF.md\` + \`brief.json\` — **start here.** The app's own conclusions, rewritten whenever the numbers
+  change: streak, this week against last, per-hand averages over the last eight pages, weakest metrics,
+  the letters OCR stumbles on, how scores fall down a page, today's plan and program, data gaps, and
+  the Method behind every number. A daily or weekly brief needs nothing else.
+- \`recent.json\` — the last six weeks of sessions whole, for evidence.
+- \`cowork.json\` — the manifest. \`coach/request.json\` + \`coach/INSTRUCTIONS.md\` — the one channel: write
+  \`coach/reply.json\` and the app shows it on its Progress tab.
+`;
+let coachMounted = false, coachPanel = null;
+function coachFiles() {
+  const S = loadSessions(), st = deriveStats(S);
+  const { all, ...stats } = st; // eslint-disable-line no-unused-vars
+  const recent = S.slice(-30).map(s => ({ t: new Date(s.t).toISOString(), kind: s.kind, drillId: s.drillId, minutes: s.durationMin,
+    style: s.style, mode: s.mode, match: s.match, scores: s.results || null }));
+  const brief = buildBrief(S, st);
+  return { "coach/request.json": coworkEnvelope("handwritinghelper-coach", { stats, recent }), "coach/INSTRUCTIONS.md": COACH_INSTRUCTIONS,
+    "README.md": COWORK_README, ...briefFiles(brief, S) };
+}
 function mountCoach() {
   const host = $("coach-host"), out = $("coach-reply");
   if (!host || coachMounted) return;
@@ -3250,19 +3275,183 @@ function mountCoach() {
   try { show(localStorage.getItem("hh-coach-reply") || ""); } catch { /* private mode */ }
   loadCowork().then(cw => {
     if (!cw || host.childElementCount) return;
-    cw.mount(host, {
+    coachPanel = cw.mount(host, {
       app: "handwritinghelper", manifest: coworkManifest("handwritinghelper"),
-      files: () => {
-        const S = loadSessions(), st = deriveStats(S);
-        const { all, ...stats } = st; // eslint-disable-line no-unused-vars
-        const recent = S.slice(-30).map(s => ({ t: new Date(s.t).toISOString(), kind: s.kind, drillId: s.drillId, minutes: s.durationMin,
-          style: s.style, mode: s.mode, match: s.match, scores: s.results || null }));
-        return { "coach/request.json": coworkEnvelope("handwritinghelper-coach", { stats, recent }), "coach/INSTRUCTIONS.md": COACH_INSTRUCTIONS };
-      },
+      files: coachFiles,
       apply: (_ch, reply) => { const text = coworkReplyText(reply); try { localStorage.setItem("hh-coach-reply", text); } catch { /* quota */ } show(text); },
     });
   });
 }
+
+// ---------- morning brief files ----------
+// BRIEF.md, brief.json and recent.json in the cowork folder: the app's own conclusions, so the
+// daily and weekly brief never re-derives a score or opens the raw sessions. Rewritten whenever
+// the numbers change — the hash leaves the timestamp out, so an idle folder is left alone, and
+// a new day changes "days ago" and so rewrites once. Same shape GymTracker and Run315 use.
+const SCORE_KEYS = ["overall", "slantC", "baseline", "size", "spacing", "stroke", "legibility"];
+const BRIEF_METHOD = {
+  overall: "Mean of slant steadiness, baseline, size and spacing only — legibility and pen control are deliberately left out so old pages stay comparable.",
+  slantC: "100 − 6 × the spread (standard deviation, degrees) of stroke angles across the page. Consistency, not angle: upright is fine if it is always upright. Not scored for scripts with no canonical angle.",
+  baseline: "100 − 300 × the scatter of each line's letters around a fitted straight line, as a fraction of line height. Devanagari is measured at the headline, CJK and Hangul at the centre.",
+  size: "100 − 200 × the coefficient of variation of line heights.",
+  spacing: "100 − 130 × the coefficient of variation of gaps: letter gaps in print, word gaps in cursive and joined scripts, character pitch in cell-set scripts.",
+  stroke: "100 − 150 × the coefficient of variation of stroke width (horizontal ink run-lengths). Uneven pressure or a tight grip. Not scored where thick-and-thin is the script.",
+  legibility: "OCR confidence, 0–100, only when OCR was run. A harsh but honest proxy for a stranger reading it.",
+  weakLetters: "Letters with the lowest average OCR confidence over the last 8 pages; needs at least six distinct letters seen.",
+  fatigue: "Per-line scores split into thirds of the page and averaged over the last 12 single-hand pages; a bottom third 5+ points below the top is fatigue.",
+  change14d: "Mean overall of pages in the last 14 days minus the mean of the 14 days before.",
+  lineScore: "Per line: 100 − 300 × wobble − 150 × size deviation from the page median − 3 × slant drift within the line.",
+};
+// pure: everything the brief needs, from sessions + derived stats. No storage writes.
+function buildBrief(S = loadSessions(), st = deriveStats(S), now = Date.now()) {
+  const today = dayKey(now);
+  const pages = S.filter(s => !isDrill(s) && s.results);
+  const lastPage = pages[pages.length - 1] || null, lastDrill = [...S].reverse().find(isDrill) || null;
+  const daysAgo = t => t ? Math.round((now - t) / DAY) : null;
+  const ps = programState(loadProgram(), now);
+  const weak = weakestMetrics(S, prefs.hand);
+  // the day's plan without touching the saved one: the program's week, today's cached plan, or a fresh build
+  const ids = ps ? ps.plan.drills : (planCache?.key === planKey() ? planCache.ids : buildPlan(S, prefs, weak).map(d => d.id));
+  const doneToday = new Set(S.filter(s => s.drillId && dayKey(s.t) === today).map(s => s.drillId));
+  const projs = loadProjects();
+  const hand = h => {
+    const hp = pages.filter(s => s.results?.[h]?.overall != null);
+    if (!hp.length) return null;
+    const last = hp[hp.length - 1];
+    const avg = {};
+    for (const k of SCORE_KEYS) { const v = metricAvg(S, h, k); if (v != null) avg[k] = v; }
+    const dd = dayDelta(S, h, today);
+    return {
+      pages: hp.length,
+      lastPage: { date: dayKey(last.t), daysAgo: daysAgo(last.t), style: last.style, scores: last.results[h],
+        project: last.projectId ? (projById(last.projectId, projs)?.name || null) : null },
+      avgLast8: avg, change14d: deltaFor(S, h),
+      weakest: weakestMetrics(S, h).map(k => ({ metric: k, label: METRIC_LABEL[k], avg: avg[k] ?? null })),
+      weakLetters: weakLetters(S, h), fatigue: fatigueCurve(S, h),
+      today: dd ? { pages: dd.n, changes: Object.fromEntries(dd.rows.map(r => [r.k, { first: r.a, latest: r.b, change: r.d }])) } : null,
+    };
+  };
+  const proj = activeProject(S, projs);
+  const gaps = [];
+  if (!pages.length) gaps.push("No page analyzed yet: every score is empty, not zero.");
+  if (pages.length && !pages.some(s => s.letters)) gaps.push("OCR has not been run on any page, so there is no legibility score and no weak-letter list.");
+  if (pages.length && !st.leftPages) gaps.push("No left-hand pages: the left hand is untracked, not weak.");
+  if (pages.length && !pages.some(s => s.lineScores)) gaps.push("No per-line scores yet (pages predate them), so the fatigue curve is empty.");
+  if (lastPage && daysAgo(lastPage.t) > 7) gaps.push(`The last analyzed page is ${daysAgo(lastPage.t)} days old: scores describe then, not now.`);
+  if (!st.drills && !pages.length) gaps.push("Nothing logged at all.");
+  return {
+    meta: { app: "HandwritingHelper", generatedAt: new Date(now).toISOString(), today,
+      settings: { hand: prefs.hand, style: prefs.style, mode: prefs.mode, script: prefs.script, weeklyGoalMin: prefs.goalMin },
+      freshness: { lastPage: lastPage ? dayKey(lastPage.t) : null, lastPageDaysAgo: daysAgo(lastPage?.t),
+        lastDrill: lastDrill ? dayKey(lastDrill.t) : null, lastDrillDaysAgo: daysAgo(lastDrill?.t) },
+      gaps },
+    totals: { pages: st.pages, drills: st.drills, minutes: st.minutes, daysActive: st.daysActive, streak: st.streak, bestStreak: st.bestStreak,
+      bestOverall: st.best < 0 ? null : st.best, rightPages: st.rightPages, leftPages: st.leftPages, mirrorPages: st.mirrors, cursivePages: st.cursive },
+    today: { minutes: st.todayMin, practised: practisedToday(S), streakAtRisk: st.streak > 0 && !practisedToday(S),
+      goal: { weekMin: st.weekMin, goalMin: prefs.goalMin, pct: Math.min(100, Math.round(st.weekMin / prefs.goalMin * 100)) },
+      plan: { aimedAt: (ps ? [] : weak).map(k => METRIC_LABEL[k]),
+        drills: ids.map(id => ({ id, title: DRILL_MAP[id]?.title || id, min: DRILL_MAP[id]?.min || null, done: doneToday.has(id) })) },
+      program: ps ? { title: ps.prog.title, week: ps.week, weeks: ps.prog.weeks.length, focus: ps.plan.focus, milestone: ps.plan.milestone, finished: ps.done } : null },
+    week: weeklyRows(S, now).map(r => ({ measure: r.label, thisWeek: r.now, lastWeek: r.was })),
+    hands: { R: hand("R"), L: hand("L") },
+    project: proj ? { name: proj.name, kind: proj.kind, ...projectStats(proj, S) } : null,
+    achievements: BADGES.filter(b => b.test(st)).map(b => b.n),
+    method: BRIEF_METHOD,
+  };
+}
+// the same brief minus its timestamp — what decides whether the files need rewriting
+const briefStableHash = b => coworkHash(JSON.stringify({ ...b, meta: { ...b.meta, generatedAt: 0 } }));
+function briefMarkdown(b) {
+  const L = [], n = v => (v == null ? "–" : v), sgn = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
+  const EXTRA_LABEL = { weakLetters: "Weak letters", fatigue: "Down the page", change14d: "14-day change", lineScore: "Line score" };
+  const label = k => k === "overall" ? "Overall" : METRIC_LABEL[k] || EXTRA_LABEL[k] || k;
+  L.push("# Handwriting Helper — morning brief data", "",
+    `Generated ${b.meta.generatedAt} · today ${b.meta.today}. Set to ${handName(b.meta.settings.hand).toLowerCase()} hand, ${b.meta.settings.style === "cursive" ? "cursive" : "printing"}, ${b.meta.settings.mode === "mirror" ? "mirror prime" : "single hand"}, ${scriptOf(b.meta.settings.script).label}.`, "",
+    "**Every number here was computed by the app with its own formulas** (see Method at the end). Use them as given rather than re-deriving them from `recent.json`, which is there for detail you cannot find here.", "",
+    "## At a glance", "",
+    `- **Streak:** ${b.totals.streak} day${b.totals.streak === 1 ? "" : "s"} (best ${b.totals.bestStreak}) · practised today: ${b.today.practised ? "yes" : "no"}${b.today.streakAtRisk ? " — **the streak still needs today**" : ""}`,
+    `- **This week:** ${b.today.goal.weekMin} of ${b.today.goal.goalMin} min (${b.today.goal.pct}%) · ${b.today.minutes} min today`,
+    `- **Totals:** ${b.totals.pages} pages (${b.totals.rightPages} right, ${b.totals.leftPages} left, ${b.totals.mirrorPages} mirror) · ${b.totals.drills} drills · ${fmtMin(b.totals.minutes)} over ${b.totals.daysActive} days · best overall ${n(b.totals.bestOverall)}`,
+    `- **Last page:** ${b.meta.freshness.lastPage ? `${b.meta.freshness.lastPage} (${b.meta.freshness.lastPageDaysAgo} days ago)` : "none"} · **last drill:** ${b.meta.freshness.lastDrill ? `${b.meta.freshness.lastDrill} (${b.meta.freshness.lastDrillDaysAgo} days ago)` : "none"}`, "");
+  L.push("## Today's plan", "");
+  if (b.today.program) L.push(`- Program **${b.today.program.title}**, week ${b.today.program.week} of ${b.today.program.weeks}${b.today.program.finished ? " (finished)" : ""}: ${b.today.program.focus}. Milestone: ${b.today.program.milestone}`);
+  else if (b.today.plan.aimedAt.length) L.push(`- Aimed at the weakest metrics: ${b.today.plan.aimedAt.join(" and ")}`);
+  for (const d of b.today.plan.drills) L.push(`- [${d.done ? "x" : " "}] ${d.title}${d.min ? ` · ${d.min} min` : ""}`);
+  L.push("", "## This week vs last", "", "| Measure | This week | Last week |", "|---|---|---|");
+  for (const r of b.week) L.push(`| ${r.measure} | ${n(r.thisWeek)} | ${n(r.lastWeek)} |`);
+  for (const h of ["R", "L"]) {
+    const x = b.hands[h];
+    L.push("", `## ${handName(h)} hand`, "");
+    if (!x) { L.push("- No pages for this hand."); continue; }
+    L.push(`- ${x.pages} pages · latest ${x.lastPage.date} (${x.lastPage.daysAgo} days ago, ${x.lastPage.style}${x.lastPage.project ? `, project "${x.lastPage.project}"` : ""}): ` +
+      SCORE_KEYS.filter(k => x.lastPage.scores[k] != null).map(k => `${label(k)} ${x.lastPage.scores[k]}`).join(", "));
+    L.push(`- Average of the last 8 pages: ` + SCORE_KEYS.filter(k => x.avgLast8[k] != null).map(k => `${label(k)} ${x.avgLast8[k]}`).join(", "));
+    L.push(`- 14-day change in overall: ${sgn(x.change14d)}`);
+    if (x.weakest.length) L.push(`- Weakest: ${x.weakest.map(w => `${w.label} (${n(w.avg)})`).join(", ")}`);
+    if (x.weakLetters.length) L.push(`- Letters OCR stumbles on: ${x.weakLetters.join(" ")}`);
+    if (x.fatigue) {
+      const d = x.fatigue.thirds[0] - x.fatigue.thirds[2];
+      L.push(`- Down the page (top / middle / bottom third): ${x.fatigue.thirds.join(" / ")} over ${x.fatigue.pages} pages` +
+        (d >= 5 ? ` — bottom runs ${d} below the top: fatigue` : d <= -5 ? " — warms into the page" : " — steady"));
+    }
+    if (x.today) L.push(`- Today, first page against latest (${x.today.pages} pages): ` +
+      Object.entries(x.today.changes).map(([k, c]) => `${label(k)} ${c.first}→${c.latest} (${sgn(c.change)})`).join(", "));
+  }
+  if (b.project) L.push("", "## Current project", "",
+    `- ${b.project.name} (${PROJECT_KINDS[b.project.kind] || b.project.kind}): ${b.project.pages} pages${b.project.pct != null ? ` (${b.project.pct}% of the goal)` : ""}, ${fmtMin(b.project.minutes)}, last ${b.project.last ? dayKey(b.project.last) : "–"}` +
+    (b.project.avgR != null ? `, right average ${b.project.avgR}` : "") + (b.project.avgL != null ? `, left average ${b.project.avgL}` : ""));
+  if (b.achievements.length) L.push("", "## Achievements unlocked", "", "- " + b.achievements.join(" · "));
+  L.push("", "## Data gaps", "", ...(b.meta.gaps.length ? b.meta.gaps.map(g => "- " + g) : ["- none"]));
+  L.push("", "## Writing the brief", "",
+    "- Lead with **today**: a streak at risk, the plan (and how much of it is done), the program week's focus.",
+    "- Then what changed: the 14-day change per hand, this week against last, the weakest metric and whether it moved.",
+    "- Cite the numbers above. If something is under *Data gaps*, say it is missing rather than guessing.",
+    "- Scores are comparable within one alphabet, not across alphabets. Legibility only exists where OCR was run.",
+    "- This is one app among several in the brief: a few lines, and only what is new.");
+  L.push("", "## Method", "", ...Object.entries(b.method).map(([k, v]) => `- **${label(k)}** — ${v}`));
+  return L.join("\n") + "\n";
+}
+// the last `days` days of sessions whole, small enough to read in one go
+function recentDigest(S, now = Date.now(), days = 42) {
+  const from = now - days * DAY, projs = loadProjects();
+  const sessions = S.filter(s => s.t >= from).map(s => ({
+    id: s.id, date: new Date(s.t).toISOString(), kind: s.kind || "page", drillId: s.drillId, drill: s.drillId ? DRILL_MAP[s.drillId]?.title : undefined,
+    hand: s.hand, style: s.style, mode: s.mode, script: s.script, minutes: s.durationMin, project: s.projectId ? projById(s.projectId, projs)?.name : undefined,
+    scores: s.results, match: s.match, dictation: s.dictation, letters: s.letters, lineScores: s.lineScores }));
+  return { window: { from: dayKey(from), to: dayKey(now), days }, counts: { sessions: sessions.length, pages: sessions.filter(s => s.kind !== "drill").length, drills: sessions.filter(s => s.kind === "drill").length },
+    sessions, projects: projs.filter(p => !p.archivedAt).map(p => ({ id: p.id, name: p.name, kind: p.kind, targetPages: p.targetPages || null })),
+    program: loadProgram() };
+}
+const briefFiles = (b, S) => ({
+  "brief.json": coworkEnvelope("handwritinghelper-brief", b, "morning-brief"),
+  "BRIEF.md": briefMarkdown(b),
+  "recent.json": coworkEnvelope("handwritinghelper-recent", recentDigest(S), "recent"),
+});
+async function fsWrite(root, path, text) {
+  const parts = path.split("/"), name = parts.pop();
+  let dir = root;
+  for (const p of parts) dir = await dir.getDirectoryHandle(p, { create: true });
+  const w = await (await dir.getFileHandle(name, { create: true })).createWritable(); // atomic on close
+  await w.write(typeof text === "string" ? text : JSON.stringify(text, null, 1));
+  await w.close();
+}
+let briefHash = null, briefTimer = null;
+async function writeBriefFiles(force) {
+  const root = coachPanel?._root; // the panel's folder handle; null until connected
+  if (!root || location.search.includes("selftest")) return false;
+  const S = loadSessions(), b = buildBrief(S, deriveStats(S));
+  const h = briefStableHash(b);
+  if (!force && h === briefHash) return false;
+  try {
+    const files = { ...briefFiles(b, S), "README.md": COWORK_README };
+    for (const [p, v] of Object.entries(files)) await fsWrite(root, p, v);
+    briefHash = h;
+    return true;
+  } catch (e) { return false; } // a folder that went away must never break a save
+}
+// after any change, once things settle; and every few minutes so a new day rolls the files over
+function scheduleBrief() { clearTimeout(briefTimer); briefTimer = setTimeout(() => writeBriefFiles(), 1500); }
+setInterval(() => writeBriefFiles(), 5 * 60000);
 function renderProgress(S, st) {
   mountCoach();
   const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
@@ -4423,6 +4612,7 @@ function renderAll() {
   // keep both project pickers in step with the current list without losing what's chosen
   fillProjectSelect($("save-project"), $("save-project").value || prefs.lastProject || "", "No project");
   fillProjectSelect($("chart-project"), $("chart-project").value || "", "All projects");
+  scheduleBrief(); // every mutation ends in renderAll, so the cowork folder's brief follows the data
 }
 function renderStats() { renderAll(); } // core.js (Drive sync) calls this after a merge
 
@@ -5112,6 +5302,34 @@ if (location.search.includes("selftest")) {
   // --- drill content ---
   pass = check("drills: every drill has a common-mistake line", DRILLS.every(d => d.fix && d.fix.length > 20)) && pass;
   pass = check("drills: every category has a two-item self-check", CATEGORIES.every(c => SELF_CHECK[c]?.length === 2)) && pass;
+
+  // --- morning brief files ---
+  const bS = [
+    { id: "b1", t: Date.now() - 2 * DAY, kind: "page", style: "print", mode: "single", durationMin: 20, results: { R: { overall: 60, slantC: 55, baseline: 50, size: 70, spacing: 65 } }, lineScores: [80, 80, 70, 70, 50, 50] },
+    { id: "b2", t: Date.now() - DAY, kind: "drill", drillId: "warm-loops", hand: "R", durationMin: 5 },
+    { id: "b3", t: Date.now() - 3e5, kind: "page", style: "print", mode: "single", durationMin: 25, results: { R: { overall: 66, slantC: 61, baseline: 58, size: 70, spacing: 69 } }, lineScores: [82, 80, 71, 69, 55, 52] },
+  ];
+  const brief = buildBrief(bS, deriveStats(bS));
+  pass = check("brief: totals from the derived stats", brief.totals.pages === 2 && brief.totals.drills === 1 && brief.totals.minutes === 50) && pass;
+  pass = check("brief: right hand summarised, left hand absent", brief.hands.R?.pages === 2 && brief.hands.L === null) && pass;
+  pass = check("brief: weakest metric named with its average", brief.hands.R.weakest[0]?.label === "Baseline" && brief.hands.R.weakest[0].avg === 54) && pass;
+  pass = check("brief: fatigue computed from per-line scores", brief.hands.R.fatigue?.thirds.join("/") === "81/70/52") && pass;
+  pass = check("brief: gaps say what is missing, got " + brief.meta.gaps.length, brief.meta.gaps.some(g => /OCR/.test(g)) && brief.meta.gaps.some(g => /left-hand/.test(g))) && pass;
+  pass = check("brief: today's plan has drills", brief.today.plan.drills.length >= 3 && brief.today.plan.drills.every(d => d.title)) && pass;
+  pass = check("brief: this week vs last carries every measure", brief.week.length === weeklyRows(bS).length) && pass;
+  pass = check("brief: method explains every score", SCORE_KEYS.every(k => brief.method[k])) && pass;
+  const md = briefMarkdown(brief);
+  pass = check("brief: markdown has the sections an agent is told to read",
+    ["# Handwriting Helper — morning brief data", "## At a glance", "## Today's plan", "## This week vs last", "## Right hand", "## Data gaps", "## Writing the brief", "## Method"].every(h => md.includes(h))) && pass;
+  pass = check("brief: markdown cites the numbers", md.includes("Baseline 58") && md.includes("81 / 70 / 52")) && pass;
+  const b2 = buildBrief(bS, deriveStats(bS), Date.now() + 1000);
+  pass = check("brief: a later timestamp alone does not change the hash", briefStableHash(brief) === briefStableHash(b2)) && pass;
+  pass = check("brief: new data does change the hash", briefStableHash(buildBrief(bS.slice(0, 2), deriveStats(bS.slice(0, 2)))) !== briefStableHash(brief)) && pass;
+  const rd = recentDigest(bS);
+  pass = check("brief: recent digest keeps the window's sessions whole, got " + rd.counts.sessions, rd.counts.sessions === 3 && rd.counts.pages === 2 && rd.sessions[2].lineScores?.length === 6) && pass;
+  pass = check("brief: empty history still builds", buildBrief([], deriveStats([])).meta.gaps.length > 0 && briefMarkdown(buildBrief([], deriveStats([]))).includes("No page analyzed")) && pass;
+  pass = check("brief: the folder files are brief.json, BRIEF.md and recent.json", Object.keys(briefFiles(brief, bS)).sort().join() === "BRIEF.md,brief.json,recent.json") && pass;
+  pass = check("brief: coach channel is told to start from BRIEF.md", COACH_INSTRUCTIONS.includes("../BRIEF.md") && COWORK_README.includes("BRIEF.md")) && pass;
 
   // --- report ---
   const rep = reportHtml(stS, st, {}, "R");

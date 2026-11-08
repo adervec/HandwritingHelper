@@ -116,6 +116,14 @@ There's a [reference guide](https://adervec.github.io/HandwritingHelper/guide.ht
 photograph a page so the scores are trustworthy, posture and grip, the left-hand paper tilt, and a
 symptom-to-drill troubleshooting table.
 
+**Coach and morning brief.** The Progress tab can connect a folder on disk (the house cowork
+protocol, see CoworkSyncHub). Into it the app writes `BRIEF.md` and `brief.json` — its own
+conclusions: streak, this week against last, per-hand averages, weakest metrics, weak letters, the
+fatigue curve, today's plan and program, data gaps, and the method behind every number — plus
+`recent.json` with the last six weeks of sessions. They are rewritten whenever the numbers change,
+so a daily or weekly brief reads them cold without re-deriving a score. The `coach` channel's reply
+shows under the panel. Nothing is uploaded; the folder is yours.
+
 ## Privacy
 
 Analysis runs entirely in your browser. **No photo ever leaves your device** — it is never uploaded
