@@ -317,19 +317,43 @@
   #sheet-paper svg { display: block; width: 100%; height: auto; }
   #sheet-paper:empty { display: none; }
 
+  /* display mode: the sheet alone, white, filling a tablet or e-ink screen propped by the notebook */
+  #sheet-paper:fullscreen { display: flex; align-items: center; justify-content: center; background: #fff; }
+  #sheet-paper:fullscreen svg { width: auto; height: 100vh; max-width: 100vw; }
+  #sheet-text { width: 100%; margin: 6px 0; font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); color: inherit; resize: vertical; }
+  /* letterform demo: the model text draws itself. ponytail: outline tracing via dashoffset,
+     not real stroke order — it shows the shape forming, which is all a demo needs */
+  #run-demo svg { width: 100%; height: auto; display: block; margin: 2px 0 8px; cursor: pointer; }
+  #run-demo tspan { fill: none; stroke: var(--ink-2); stroke-width: 1.1; stroke-linejoin: round;
+    stroke-dasharray: 420; stroke-dashoffset: 420; animation: hh-draw 1.6s ease-out forwards; }
+  @keyframes hh-draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { #run-demo tspan { animation: none; stroke-dashoffset: 0; } }
+  #run-check label { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; }
+  #report { display: none; }
+
   @media print {
-    /* only the guide sheet should ever hit paper */
-    body > *:not(#sheet) { display: none !important; }
+    /* only the guide sheet should ever hit paper — or the progress report, when that was asked for */
+    body:not(.print-report) > *:not(#sheet) { display: none !important; }
+    body.print-report > *:not(#report) { display: none !important; }
+    body.print-report #report { display: block; color: #111; background: #fff; font-size: 12pt; }
+    body.print-report #report * { color: #111 !important; background: #fff !important; border-color: #bbb !important; }
+    body.print-report #report .tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+    body.print-report #report .tile { border: 1px solid #bbb; border-radius: 8px; padding: 8px 12px; min-width: 110px; }
+    body.print-report #report .cmp { display: flex; gap: 12px; }
+    body.print-report #report .cmp img { max-width: 48%; border: 1px solid #bbb; }
+    body.print-report #report table { border-collapse: collapse; } body.print-report #report td, body.print-report #report th { padding: 3px 10px; border-bottom: 1px solid #ddd; text-align: left; }
     #sheet { position: static; display: block !important; background: #fff; }
-    #sheet .sheetbar, #run-card, #sheet-opts { display: none !important; }
+    #sheet .sheetbar, #run-card, #sheet-opts, #sheet-textopts, #sheet-text { display: none !important; }
     #sheet-body { padding: 0; overflow: visible; }
     #sheet-inner { max-width: none; }
     /* pinned to the viewBox's own millimetres so the x-height prints true to size —
        without this the sheet stretches to the paper width and spills onto a second page */
     #sheet-paper { box-shadow: none; border-radius: 0; width: 190mm; margin: 0 auto; }
+    #sheet-paper.land { width: 277mm; }
     @page { margin: 10mm; }
   }
 </style>
+<style id="page-orient"></style>
 </head>
 <body>
 <header class="topbar">
@@ -406,8 +430,15 @@
       <button class="act" id="plan-reroll" title="Build a different routine">↻ Reshuffle</button>
     </div>
     <p class="subline" id="plan-why"></p>
+    <p class="subline hidden" id="weak-letters"></p>
     <div class="planlist" id="plan-list"></div>
     <p class="subline" id="plan-progress"></p>
+  </div>
+
+  <div class="card hidden" id="delta-card">
+    <div class="card-hd"><h2>Before and after</h2><span class="pill" id="delta-pill"></span></div>
+    <p class="subline" id="delta-why"></p>
+    <div class="tablewrap"><table id="delta-table"><tbody></tbody></table></div>
   </div>
 
   <div class="card">
@@ -593,7 +624,7 @@
 <!-- ============ PROGRESS ============ -->
 <section id="tab-progress" class="tab-panel">
   <div class="card">
-    <h2>Totals</h2>
+    <div class="card-hd"><h2>Totals</h2><button class="act" id="report-btn" title="A one-page printable summary: first and latest page, every score then and now, drills, streak">Print report</button></div>
     <div class="tiles" id="stat-tiles"></div>
   </div>
 
@@ -612,6 +643,12 @@
   <div class="card">
     <div class="card-hd"><h2>This week vs last</h2><span class="d muted" style="font-size:12px" id="weekly-note"></span></div>
     <div class="tablewrap"><table id="weekly"><tbody></tbody></table></div>
+  </div>
+
+  <div class="card hidden" id="fatigue-card">
+    <div class="card-hd"><h2>Down the page</h2><span class="d muted" style="font-size:12px" id="fatigue-note"></span></div>
+    <div id="fatigue-chart"></div>
+    <p class="subline" id="fatigue-line"></p>
   </div>
 
   <div class="card">
@@ -764,6 +801,8 @@
 <div id="sheet">
   <div class="sheetbar">
     <b id="sheet-title" class="grow">Drill</b>
+    <button class="act" id="sheet-display" title="Full-screen the sheet, to copy from a tablet or e-ink screen instead of printing">Display</button>
+    <button class="act" id="sheet-png" title="Save the sheet as a PNG template for a reMarkable or Supernote">PNG</button>
     <button class="act" id="sheet-print">Print sheet</button>
     <button class="act" id="sheet-close">Close</button>
   </div>
@@ -771,6 +810,9 @@
     <div id="sheet-inner">
       <div class="card" id="run-card">
         <p id="run-how"></p>
+        <p class="subline" id="run-fix"></p>
+        <div id="run-demo" title="Tap to replay"></div>
+        <p class="subline hidden" id="run-prompt"></p>
         <div class="meta" id="run-tags" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
         <div id="timer-wrap">
           <svg id="timer-ring" width="132" height="132" viewBox="0 0 132 132" aria-hidden="true">
@@ -784,6 +826,7 @@
             <button class="act" id="timer-reset">Reset</button>
           </div>
         </div>
+        <div class="fieldrow hidden" id="run-check" style="margin-top:14px;justify-content:center"></div>
         <div class="fieldrow" style="margin-top:14px;justify-content:center">
           <span class="flab">Hand</span>
           <div class="seg"><button id="run-R">Right</button><button id="run-L">Left</button></div>
@@ -795,10 +838,48 @@
       </div>
       <div class="fieldrow" id="sheet-opts">
         <span class="flab">Guide sheet</span>
+        <select id="sheet-kind" title="Ruling">
+          <option value="auto">Drill's own ruling</option>
+          <option value="ruled">Ruled</option>
+          <option value="slant">Slant rails</option>
+          <option value="copperplate">Copperplate 3:2:3 · 55°</option>
+          <option value="spencerian">Spencerian · 52°</option>
+          <option value="seyes">Seyès (French ruled)</option>
+          <option value="dots">Dot grid 5 mm</option>
+          <option value="grid">Square grid</option>
+          <option value="boxes">Letter boxes</option>
+        </select>
         <label class="flab">Lines <input type="number" id="sheet-lines" min="4" max="40" style="width:60px"></label>
         <label class="flab">x-height <input type="number" id="sheet-xh" min="4" max="16" style="width:60px"> mm</label>
-        <label class="flab">Slant <input type="number" id="sheet-slant" min="-30" max="30" step="5" style="width:60px"> °</label>
+        <label class="flab">Slant <input type="number" id="sheet-slant" min="-40" max="40" step="1" style="width:60px"> °</label>
+        <label class="flab"><input type="checkbox" id="sheet-land"> Landscape</label>
+        <label class="flab"><input type="checkbox" id="sheet-margin"> Binding margin</label>
       </div>
+      <div class="fieldrow" id="sheet-textopts">
+        <span class="flab">Model text</span>
+        <select id="sheet-passage" title="Something to copy out"><option value="">Drill's own text</option></select>
+        <select id="sheet-trace" title="Where the model text is printed">
+          <option value="one">First line only</option>
+          <option value="alt">Alternate model / blank</option>
+          <option value="all">Every line</option>
+          <option value="none">Hidden (dictation)</option>
+        </select>
+        <select id="sheet-font" title="Typeface of the model text">
+          <option value="serif">Serif model</option>
+          <option value="print">Print hand (Andika)</option>
+          <option value="cursive">Cursive hand (Cedarville)</option>
+        </select>
+        <select id="sheet-ink" title="How the model text is drawn">
+          <option value="grey">Light grey</option>
+          <option value="dotted">Dotted</option>
+          <option value="outline">Outline</option>
+          <option value="cyan">Non-photo cyan</option>
+          <option value="sepia">Sepia</option>
+        </select>
+        <label class="flab">Faint <input type="range" id="sheet-faint" min="10" max="70" step="5" style="width:80px"></label>
+        <button class="act hidden" id="run-dictate" title="Read the model text aloud, hide it on the sheet, and write it from hearing. OCR the page afterwards to score how much read back.">🔊 Dictate</button>
+      </div>
+      <textarea id="sheet-text" rows="2" placeholder="Your own text to trace — a passage from the book you're copying out, a quote, your name — or pick one above. Long text wraps onto as many lines as the sheet has."></textarea>
       <div id="sheet-paper"></div>
     </div>
   </div>
@@ -825,6 +906,9 @@
   </div>
   <div id="detail-body"></div>
 </div>
+
+<!-- printable progress report: filled and printed on demand, never shown on screen -->
+<div id="report"></div>
 
 <div id="tooltip"></div>
 <script>
@@ -1280,6 +1364,43 @@ function parseDuration(text) {
   if (m && +m[1] <= 600) return +m[1];
   return null;
 }
+// The header every printed guide sheet carries — "HH slant-rails 2026-11-08 L" — read back off
+// the photographed page, so the session tags itself with the drill, its date and the hand.
+// OCR tends to eat hyphens, so the id is matched with its punctuation stripped.
+function parseSheetHeader(text) {
+  const m = text.match(/\bHH\b[\s:\-]*([a-z]{2,8}[\s\-_—–]*[a-z]{2,10})\s+(\d{4})[\s\-.\/](\d{1,2})[\s\-.\/](\d{1,2})(?:\s+([RL])\b)?/i);
+  if (!m) return null;
+  const want = m[1].toLowerCase().replace(/[^a-z]/g, "");
+  const drill = DRILLS.find(d => d.id.replace(/-/g, "") === want);
+  if (!drill) return null;
+  return { drillId: drill.id, date: mkDate(+m[2], +m[3], +m[4]), hand: m[5] ? m[5].toUpperCase() : null };
+}
+// Per-letter OCR confidence: which letters the engine kept stumbling on. Digits and anything
+// seen only once are dropped — one bad glyph is noise, a letter that is low every time is you.
+function letterConf(symbols) {
+  const acc = {};
+  for (const s of symbols || []) {
+    const ch = (s.text || "").toLowerCase();
+    if (!/^\p{L}$/u.test(ch)) continue;
+    (acc[ch] ||= []).push(s.confidence);
+  }
+  const out = {};
+  for (const [ch, v] of Object.entries(acc))
+    if (v.length >= 2) out[ch] = Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+  return out;
+}
+// Bag-of-words match of what OCR read back against what was dictated — legibility against
+// ground truth, where bare OCR confidence is only a guess at it.
+function wordAccuracy(expected, got) {
+  const words = t => (String(t).toLowerCase().match(/\p{L}+/gu) || []);
+  const want = words(expected), have = words(got);
+  if (!want.length) return null;
+  const bag = {};
+  for (const w of have) bag[w] = (bag[w] || 0) + 1;
+  let hit = 0;
+  for (const w of want) if (bag[w]) { bag[w]--; hit++; }
+  return { hit, total: want.length, pct: Math.round(hit / want.length * 100) };
+}
 
 // ---------- Google Drive ----------
 // Mirrors Tachyread's provider: a public client id (an identifier, not a secret) that only works
@@ -1646,6 +1767,43 @@ const PANGRAMS = [
   "Sphinx of black quartz, judge my vow",
   "How vexingly quick daft zebras jump",
 ];
+// Things worth copying out: public-domain passages, plus the classic drills. Picked from a
+// list on the guide sheet, or the user pastes their own — the book they are copying, say.
+const PASSAGES = [
+  { t: "Pangrams", s: PANGRAMS.join(". ") + "." },
+  { t: "Ligature drill", s: "minimum aluminum autumn momentum unanimous continuum minimum" },
+  { t: "Alphabet, both cases", s: "abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ" },
+  { t: "Numbers and dates", s: "0 1 2 3 4 5 6 7 8 9 · 14 March 2026 · 10:45 · 07700 900123 · 3/4 · 12.50" },
+  { t: "An address", s: "Ms Ada Lovelace\n12 St James's Square\nLondon SW1Y 4JH" },
+  { t: "Marcus Aurelius", s: "No longer talk at all about the kind of man that a good man ought to be, but be such. Very little is needed to make a happy life; it is all within yourself, in your way of thinking." },
+  { t: "Seneca", s: "While we are postponing, life speeds by. Nothing is ours, except time. Hold every hour in your grasp." },
+  { t: "Epictetus", s: "Men are disturbed, not by things, but by the principles and notions which they form concerning things. Some things are in our control and others not." },
+  { t: "Lao Tzu", s: "The journey of a thousand miles commenced with a single step. The tree which fills the arms grew from the tiniest sprout." },
+  { t: "Thoreau", s: "I went to the woods because I wished to live deliberately, to front only the essential facts of life, and see if I could not learn what it had to teach, and not, when I came to die, discover that I had not lived." },
+  { t: "Emerson", s: "Trust thyself: every heart vibrates to that iron string. Nothing can bring you peace but yourself." },
+  { t: "Austen", s: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife." },
+  { t: "Dickinson", s: "Hope is the thing with feathers that perches in the soul, and sings the tune without the words, and never stops at all." },
+  { t: "Shakespeare, Sonnet 18", s: "Shall I compare thee to a summer's day? Thou art more lovely and more temperate. Rough winds do shake the darling buds of May, and summer's lease hath all too short a date." },
+  { t: "Frost", s: "Two roads diverged in a yellow wood, and sorry I could not travel both and be one traveler, long I stood and looked down one as far as I could to where it bent in the undergrowth." },
+];
+// every sentence we know — the prompt rotation and the weak-letter picker both draw on it
+const TEXT_POOL = [...PANGRAMS, ...PASSAGES.slice(5).flatMap(p => p.s.split(/(?<=[.!?])\s+/))];
+// Two honest questions per category, asked before a drill is logged. Nothing is stored:
+// the point is the thirty seconds of looking at the page.
+const SELF_CHECK = {
+  "Warm-up": ["Moved from the elbow, not the fingers", "Hand feels loose, not warm"],
+  "Pen control": ["Same darkness at the start and end of a line", "Fingertips never went white"],
+  "Slant": ["Every stem on the same angle, checked by squinting", "No letter leaning the other way"],
+  "Baseline": ["Every word's last letter sits on the line", "No line climbs or sags across the page"],
+  "Size": ["Round letters stop at the dashed line", "Ascenders reach the top line every time"],
+  "Spacing": ["One 'o' between words, half between letters", "Gaps did not shrink toward the end"],
+  "Cursive": ["Pen stayed down through every word", "Every join lands on the baseline"],
+  "Printing": ["One shape for every letter on the page", "Each letter readable on its own"],
+  "Left hand": ["Paper tilted, hand below the line", "No smudges"],
+  "Mirror prime": ["Copy line the same height as its model", "Same rhythm in both hands"],
+  "Speed": ["Still readable on the last line", "Tempo even — not a sprint, then a crawl"],
+  "Legibility": ["A stranger could read every word", "No number that could be another number"],
+};
 
 const DRILLS = [
   // ---- warm-up ----
@@ -1786,6 +1944,49 @@ const DRILLS = [
     how: "Write half a page of unfamiliar text, put it away, and read it back tomorrow. Anything you stumble on is a letter shape to drill. Run the OCR check on it too — the engine is a harsh but honest reader.",
     sheet: { kind: "ruled", textKey: "sentence", text: PANGRAMS[2] } },
 ];
+// One line per drill: the mistake everyone makes in it, and the correction. Shown in the
+// runner under the instructions. Kept apart from the catalog so the catalog stays scannable.
+const DRILL_FIX = {
+  "warm-loops": "Loops that shrink toward the end of the line — the hand tightened. Shake it out and restart the line at full size.",
+  "warm-waves": "Waves climbing above the band — you are drawing from the wrist. Drop the elbow and let the forearm carry the pen.",
+  "warm-ovals": "Ovals that go round instead of leaning — set the pen on a slant rail before each one and follow it.",
+  "warm-pushpull": "Strokes that curl at the bottom — the fingers pushed at the end. Stop each stroke a touch early.",
+  "warm-air": "Tiny movements from the wrist — make the letters a metre tall so the whole arm has to move.",
+  "pen-even": "Dark at the start, faint at the end — pressure leaks out as you go. Looser grip, constant speed.",
+  "pen-slowmo": "Speeding up on the easy letters — a word takes ten seconds, every letter at the same tempo.",
+  "pen-grip": "White fingertips — that is the death grip. Put the pen down, shake the hand once, pick it up lighter.",
+  "slant-rails": "Strokes fanning out across the line — you are watching the pen, not the rail. Look one letter ahead.",
+  "slant-letters": "Round letters pulling the stems upright — build every letter from its stem first, then add the bowl.",
+  "slant-switch": "The three versions drifting toward one another — exaggerate each until they look like three different hands.",
+  "base-ruled": "Word endings lifting off the line — slow down for the last two letters of every word.",
+  "base-longwords": "Sagging in the middle of the word — a faint pencil dot on the line every three letters, until it holds.",
+  "base-nolines": "Lines climbing toward the right — turn the paper a little until the arm's natural arc runs level.",
+  "size-xheight": "Round letters peeking above the dashed line — close the oval a little earlier than feels right.",
+  "size-ascdesc": "Ascenders stopping short of the top line — stretch them until they touch; short ascenders read as sloppy.",
+  "size-shrink": "The small blocks getting wobbly — go back up a size and come down more slowly.",
+  "size-boxes": "Letters hugging one side of the box — aim at the centre of the box, not its left edge.",
+  "space-oh": "Gaps shrinking when you hurry — pencil the 'o' back in for one more line before going freehand.",
+  "space-minimum": "Humps of different widths — count them aloud, one-two-three, every hump the same beat.",
+  "space-columns": "Words wandering off the first column — put the pen on the grid line before the first letter.",
+  "cur-joins": "Lifting the pen between the pair — keep it down even when the join looks wrong, then fix the join.",
+  "cur-minimum": "Valleys of different depth — every join should touch the baseline.",
+  "cur-chain": "Rhythm breaking mid-line — hum a steady beat; the pen follows the beat, not the other way round.",
+  "cur-caps": "A capital that could be two letters — draw it in one movement, large, and keep the shape that reads.",
+  "print-alphabet": "Two shapes of a, g or k on one page — circle them and recopy the line with one shape only.",
+  "print-numerals": "A 1 that reads as 7, a 5 as S — crossbar the 7, start the 5 with a straight downstroke.",
+  "left-tilt": "The wrist curling over the line — the paper is not tilted enough. Turn it further clockwise.",
+  "left-under": "Smudged words — the hand drifted above the line again. Re-tilt the paper, lower the hand.",
+  "left-big": "Letters shrinking as the page goes on — fatigue. Stop, shake the arm, go back to full size.",
+  "left-pull": "Skipping strokes — those are the pushes. Note which letters skip and re-route them to pull.",
+  "mirror-pairs": "A copy line smaller than its model — size first, slant second. Match the height before anything else.",
+  "mirror-sync": "Both hands drifting toward the dominant one — slow the dominant hand until the two move together.",
+  "speed-pangram": "Legibility collapsing after a few repeats — that repeat count is your real speed. Stop there.",
+  "speed-timed": "Rushing the last lines to beat the clock — the clock measures, it is not the goal. Keep the tempo even.",
+  "endure-page": "Grip tightening at the bottom of the page — shake the hand out at every paragraph, not only when it hurts.",
+  "leg-address": "Numbers and names only you can read — those are the ones that cost something. Print them.",
+  "leg-selfread": "Stumbling on the same letter twice — that letter gets its own drill tomorrow.",
+};
+for (const d of DRILLS) d.fix = DRILL_FIX[d.id];
 
 // ---------- multi-week programs ----------
 // A program is an ordered curriculum: while one is running it replaces the daily
@@ -1866,40 +2067,102 @@ const drillFits = (d, hand, style) =>
 // ---------- printable guide sheets (SVG, millimetre viewBox so print is true-to-size) ----------
 // Greys are hard-coded: a guide sheet is always printed on white paper, so it must not
 // follow the screen theme. Light enough to write over, dark enough to see through a sheet.
-const SHEET_INK = { base: "#8d97a3", mid: "#c2c9d1", edge: "#dfe4e9", slant: "#e4e8ec", trace: "#d3d8dd", tint: "#f2f6fb" };
-// How many ruled lines fit one page at a given x-height (asc + desc + gap = xh * 2.75).
+const SHEET_INK = { base: "#8d97a3", mid: "#c2c9d1", edge: "#dfe4e9", slant: "#e4e8ec", trace: "#d3d8dd", tint: "#f2f6fb", text: "#6b7580", margin: "#e8b4b4" };
+// Model-text inks. Grey at 30% is the old flat #d3d8dd; cyan is the non-photo blue that a
+// fountain pen's ink hides; dotted and outline are tracing styles rather than colours.
+const TRACE_INK = { grey: "#6b7580", dotted: "#6b7580", outline: "#6b7580", cyan: "#00a6e0", sepia: "#8b5a2b" };
+// A serif is a poor model of handwriting. Andika is a school print hand and Cedarville a plain
+// cursive, both OFL and fetched from Google Fonts on first use; offline the stack falls back.
+const SHEET_FONTS = { serif: "Georgia, 'Times New Roman', serif", print: "Andika, Verdana, sans-serif", cursive: "'Cedarville Cursive', 'Segoe Script', 'Brush Script MT', cursive" };
+const FONT_URL = "https://fonts.googleapis.com/css2?family=Andika&family=Cedarville+Cursive&display=swap";
+// How many ruled lines fit one page at a given x-height; `k` is the line height in x-heights
+// (2.75 for the usual asc + desc + gap, taller for Copperplate's 3:2:3 rules).
 // 240mm, not the full A4 height: the sheet must also fit US Letter's shorter printable
 // area (259mm at 10mm margins) or every print spills onto a second, near-empty page.
-const defaultLines = xh => Math.max(1, Math.floor(240 / (xh * 2.75)));
+const defaultLines = (xh, land = false, k = 2.75) => Math.max(1, Math.floor((land ? 170 : 240) / (xh * k)));
+// x-height of a font per unit of font-size, measured once on a canvas, so the model text fills
+// the guide band whatever the typeface instead of assuming one serif's proportions.
+const xRatioCache = {};
+function xRatio(font) {
+  if (xRatioCache[font] != null) return xRatioCache[font];
+  let r = 0.48; // Georgia's — the old assumption
+  try {
+    const x = document.createElement("canvas").getContext("2d");
+    x.font = `100px ${font}`;
+    const m = x.measureText("x").actualBoundingBoxAscent;
+    if (m > 25 && m < 80) r = m / 100;
+  } catch (e) { /* no canvas — keep the guess */ }
+  return (xRatioCache[font] = r);
+}
+// Width of a string in mm at a font-size given in mm: the SVG's unit is the millimetre, so a
+// canvas measured at the same number of pixels answers directly.
+function textWidthMm(text, sizeMm, font) {
+  try {
+    const x = document.createElement("canvas").getContext("2d");
+    x.font = `${sizeMm}px ${font}`;
+    return x.measureText(text).width;
+  } catch (e) { return text.length * sizeMm * 0.5; }
+}
+// Greedy word wrap into lines no wider than `maxW`. `measure` is injected so the self-test can
+// run it without a canvas. A single word wider than the line keeps its own line and overflows.
+function wrapText(text, maxW, measure) {
+  const out = [];
+  for (const para of String(text).split(/\n+/)) {
+    let line = "";
+    for (const w of para.split(/\s+/).filter(Boolean)) {
+      const t = line ? line + " " + w : w;
+      if (line && measure(t) > maxW) { out.push(line); line = w; } else line = t;
+    }
+    if (line) out.push(line);
+  }
+  return out;
+}
 
+// opts, all optional: lines · xh · slant · kind (overrides the drill's ruling) · land · margin
+// (12mm binding allowance) · text / trace ("one" first line, "alt" model-blank pairs, "all",
+// "none") · font · ink · faint (10–70) · leftModel (model text at the right edge) · header
 function sheetSvg(spec, opts = {}) {
-  const kind = spec.kind || "ruled";
+  let kind = opts.kind && opts.kind !== "auto" ? opts.kind : (spec.kind || "ruled");
+  if (kind === "spencerian") kind = "copperplate";
+  const cp = kind === "copperplate";
   const xh = opts.xh || spec.xh || 8;                 // x-height in mm
   const slant = opts.slant ?? spec.slant ?? 0;        // degrees, positive = forward
   const bold = !!spec.bold;
-  const W = 190;                                       // A4 width less 10mm margins
-  const asc = xh * 1.55, desc = xh * 0.65, gap = xh * 0.55;
+  const land = !!opts.land, marginL = opts.margin ? 12 : 0;
+  const W = (land ? 277 : 190) - marginL;              // paper width less 10mm margins
+  // Copperplate rules the ascender, x-height and descender zones 3:2:3
+  const asc = cp ? xh * 1.5 : xh * 1.55, desc = cp ? xh * 1.5 : xh * 0.65, gap = xh * 0.55;
   const lineH = asc + desc + gap;
-  const wanted = opts.lines || spec.lines || defaultLines(xh);
+  const wanted = opts.lines || spec.lines || defaultLines(xh, land, lineH / xh);
   const n = Math.max(1, Math.min(40, wanted));
-  const H = Math.max(60, n * lineH + 14);
+  const top0 = opts.header ? 12 : 8;
+  const H = Math.max(60, n * lineH + top0 + 12);
   const L = (x1, y1, x2, y2, c, w = 0.3, dash = "") =>
     `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="${c}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
   let out = "";
 
-  if (kind === "grid") {
+  if (kind === "dots") {
+    for (let y = top0; y <= H - 8; y += 5)
+      for (let x = 0; x <= W; x += 5) out += `<circle cx="${x}" cy="${y.toFixed(2)}" r="0.3" fill="${SHEET_INK.mid}"/>`;
+  } else if (kind === "seyes") {
+    // French ruling: 8mm squares, three 2mm sub-rules inside each, and the margin rule at 36mm
+    for (let x = 0; x <= W; x += 8) out += L(x, top0, x, H - 8, SHEET_INK.edge, 0.25);
+    for (let y = top0, i = 0; y <= H - 8; y += 2, i++)
+      out += i % 4 === 0 ? L(0, y, W, y, SHEET_INK.base, 0.3) : L(0, y, W, y, SHEET_INK.edge, 0.18);
+    out += L(36, top0 - 4, 36, H - 4, SHEET_INK.margin, 0.5);
+  } else if (kind === "grid") {
     const cell = xh;
-    for (let x = 0; x <= W; x += cell) out += L(x, 8, x, H - 4, SHEET_INK.edge, 0.25);
-    for (let y = 8; y <= H - 4; y += cell) out += L(0, y, W, y, SHEET_INK.edge, 0.25);
+    for (let x = 0; x <= W; x += cell) out += L(x, top0, x, H - 4, SHEET_INK.edge, 0.25);
+    for (let y = top0; y <= H - 4; y += cell) out += L(0, y, W, y, SHEET_INK.edge, 0.25);
   } else if (kind === "boxes" || kind === "cells") {
     // "cells" is the square character grid CJK and Hangul are practised on, with the centre
     // cross that lets you balance a character inside its box; "boxes" is the Latin variant,
     // wider than tall in effect and ruled at x-height instead.
     const cell = kind === "cells" ? xh * 2.2 : xh * 1.6;
-    const cols = Math.floor(W / cell), rows = Math.min(n, Math.floor((H - 12) / cell));
+    const cols = Math.floor(W / cell), rows = Math.min(n, Math.floor((H - top0 - 4) / cell));
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
-        const x = c * cell, y = 8 + r * cell;
+        const x = c * cell, y = top0 + r * cell;
         out += `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="none" stroke="${SHEET_INK.mid}" stroke-width="0.25"/>`;
         if (kind === "cells") {
           out += L(x + cell / 2, y, x + cell / 2, y + cell, SHEET_INK.edge, 0.2, "1 1");
@@ -1912,7 +2175,19 @@ function sheetSvg(spec, opts = {}) {
     // every ruled family: baseline + dashed x-height + faint ascender/descender rails
     const scale = spec.ladder ? [1, 1, 0.75, 0.75, 0.5, 0.5, 0.5, 0.35, 0.35, 0.35] : null;
     const head = kind === "headline", rtl = spec.dir === "rtl";
-    let y = 8;
+    // the model text: wrapped to the sheet's width at a size that fills the x-height band
+    const trace = opts.trace || "one";
+    const font = opts.font || spec.font || SHEET_FONTS.serif;
+    const text = opts.text || spec.text;
+    const fs = xh / xRatio(font);
+    const chunks = text && trace !== "none" ? wrapText(text, W - 2, s => textWidthMm(s, fs, font)) : [];
+    const ink = TRACE_INK[opts.ink] || TRACE_INK.grey, faint = (opts.faint ?? 30) / 100;
+    const inkAttr = opts.ink === "dotted"
+      ? `fill="none" stroke="${ink}" stroke-opacity="${Math.min(1, faint + 0.25).toFixed(2)}" stroke-width="0.35" stroke-dasharray="0.7 0.6"`
+      : opts.ink === "outline" ? `fill="none" stroke="${ink}" stroke-opacity="${Math.min(1, faint + 0.25).toFixed(2)}" stroke-width="0.25"`
+      : `fill="${ink}" fill-opacity="${faint.toFixed(2)}"`;
+    const rightModel = !rtl && !!opts.leftModel; // a left hand covers a model printed on the left
+    let y = top0;
     for (let i = 0; i < n; i++) {
       const k = scale ? (scale[i % scale.length]) : 1;
       const a = asc * k, dsc = desc * k, xhk = xh * k;
@@ -1930,25 +2205,39 @@ function sheetSvg(spec, opts = {}) {
         ? L(0, basey, W, basey, SHEET_INK.mid, 0.25, "1.6 1.6")
         : L(0, basey, W, basey, SHEET_INK.base, bold ? 0.6 : 0.38);          // baseline
       out += L(0, bot, W, bot, SHEET_INK.edge, 0.25);                       // descender / lower matras
-      if ((kind === "slant" || spec.slantRails) && slant !== 0) {
+      // slant rails: Copperplate's are 3mm apart by convention, the others follow the x-height
+      const railStep = cp ? 3 : xhk * 1.4;
+      if ((kind === "slant" || cp || spec.slantRails) && slant !== 0) {
         const t = Math.tan(slant * Math.PI / 180), band = bot - top;
-        for (let x = -band * Math.abs(t); x < W; x += xhk * 1.4)
+        for (let x = -band * Math.abs(t); x < W; x += railStep)
           out += L(x + t * band, top, x, bot, SHEET_INK.slant, 0.25);
-      } else if (kind === "slant" || spec.slantRails) {
-        for (let x = 0; x < W; x += xhk * 1.4) out += L(x, top, x, bot, SHEET_INK.slant, 0.25);
+      } else if (kind === "slant" || cp || spec.slantRails) {
+        for (let x = 0; x < W; x += railStep) out += L(x, top, x, bot, SHEET_INK.slant, 0.25);
       }
       if (kind === "mirror")
         out += `<text x="${W - 1}" y="${(basey - 0.8).toFixed(2)}" text-anchor="end" font-size="${(xhk * 0.4).toFixed(2)}" fill="${SHEET_INK.mid}">${i % 2 === 0 ? "dominant" : "copy"}</text>`;
-      // First line of a text drill, printed faintly to trace over. RTL anchors at the RIGHT
-      // edge with the DEFAULT anchor: under direction:rtl the "start" is the right-hand side,
-      // so text-anchor="end" would anchor the left edge and run the line off the page.
-      if (spec.text && i === 0)
-        out += `<text x="${rtl ? (W - 0.5).toFixed(2) : "0.5"}"${rtl ? ` direction="rtl"` : ""} y="${(basey - 0.4).toFixed(2)}" font-size="${(xhk * 1.42).toFixed(2)}" fill="${SHEET_INK.trace}" font-family="${spec.font || "Georgia, 'Times New Roman', serif"}"${slant ? ` transform="skewX(${-slant})" transform-origin="0 ${basey.toFixed(2)}"` : ""}>${esc(spec.text)}</text>`;
+      // Model text to trace over. RTL anchors at the RIGHT edge with the DEFAULT anchor: under
+      // direction:rtl the "start" is the right-hand side, so text-anchor="end" would anchor the
+      // left edge and run the line off the page. A left-hander's LTR model goes right with "end".
+      const chunk = trace === "one" ? (i === 0 ? chunks[0] : null)
+        : trace === "alt" ? (i % 2 === 0 ? chunks[i / 2] : null)
+        : chunks.length ? chunks[i % chunks.length] : null;
+      if (chunk)
+        out += `<text x="${rtl || rightModel ? (W - 0.5).toFixed(2) : "0.5"}"${rtl ? ` direction="rtl"` : ""} y="${(basey - 0.4).toFixed(2)}" font-size="${(fs * k).toFixed(2)}" ${inkAttr} font-family="${font}"${rightModel ? ` text-anchor="end"` : ""}${slant ? ` transform="skewX(${-slant})" transform-origin="0 ${basey.toFixed(2)}"` : ""}>${esc(chunk)}</text>`;
       y += a + dsc + gap * k;
     }
   }
-  return `<svg viewBox="0 0 ${W} ${H.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Handwriting practice guide sheet">` +
-    `<rect width="${W}" height="${H.toFixed(1)}" fill="#fff"/>${out}</svg>`;
+  // The header the scanner reads back off the photographed page (drill, date, hand).
+  if (opts.header)
+    out += `<text x="0" y="${(top0 - 5).toFixed(1)}" font-size="3.4" font-family="Consolas, 'Courier New', monospace" fill="${SHEET_INK.text}">${esc(opts.header)}</text>`;
+  // A 100mm bar: a ruler laid across it is the check that the print came out true to size.
+  out += `<rect x="${(W - 100).toFixed(1)}" y="${(H - 3).toFixed(1)}" width="100" height="0.4" fill="${SHEET_INK.base}"/>` +
+    `<rect x="${(W - 100).toFixed(1)}" y="${(H - 4.5).toFixed(1)}" width="0.4" height="2" fill="${SHEET_INK.base}"/>` +
+    `<rect x="${(W - 0.4).toFixed(1)}" y="${(H - 4.5).toFixed(1)}" width="0.4" height="2" fill="${SHEET_INK.base}"/>` +
+    `<text x="${(W - 102).toFixed(1)}" y="${(H - 2).toFixed(1)}" text-anchor="end" font-size="2.6" fill="${SHEET_INK.base}">100 mm</text>`;
+  const VW = W + marginL;
+  return `<svg viewBox="0 0 ${VW} ${H.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Handwriting practice guide sheet">` +
+    `<rect width="${VW}" height="${H.toFixed(1)}" fill="#fff"/>${marginL ? `<g transform="translate(${marginL} 0)">` : ""}${out}${marginL ? "</g>" : ""}</svg>`;
 }
 
 // A drill's sheet is authored in Latin terms. Adapt it to the script actually being written:
@@ -2009,6 +2298,52 @@ function buildPlan(sessions, { hand, style, mode }, weak = [], pick = arr => arr
   const capture = take(d => core(d) && d.targets.includes("speed")) || take(d => d.cat === "Legibility");
   if (capture) plan.push(capture);
   return plan;
+}
+// The letters with the lowest OCR confidence over the last 8 pages of this hand. Needs a few
+// letters to have been seen at all before it will call any of them weak.
+function weakLetters(S, hand, n = 4) {
+  const pages = S.filter(s => !isDrill(s) && s.letters && s.results?.[hand]).slice(-8);
+  const acc = {};
+  for (const s of pages) for (const [ch, c] of Object.entries(s.letters)) (acc[ch] ||= []).push(c);
+  const avg = Object.entries(acc).map(([ch, v]) => [ch, v.reduce((a, b) => a + b, 0) / v.length]);
+  if (avg.length < 6) return [];
+  avg.sort((a, b) => a[1] - b[1]);
+  return avg.slice(0, n).map(a => a[0]);
+}
+// The sentence from the pool densest in the given letters, so the trace line drills them.
+function letterDenseText(letters, pool = TEXT_POOL) {
+  if (!letters.length) return "";
+  const set = new Set(letters);
+  let best = "", bestScore = -1;
+  for (const s of pool) {
+    let hit = 0, n = 0;
+    for (const ch of s.toLowerCase()) if (/\p{L}/u.test(ch)) { n++; if (set.has(ch)) hit++; }
+    const score = n ? hit / n : 0;
+    if (score > bestScore) { bestScore = score; best = s; }
+  }
+  return best;
+}
+// The first and last page of one day, same hand — the loop a drill is meant to close.
+function dayDelta(S, hand, day = dayKey(Date.now())) {
+  const pages = S.filter(s => !isDrill(s) && dayKey(s.t) === day && s.results?.[hand]?.overall != null);
+  if (pages.length < 2) return null;
+  const a = pages[0].results[hand], b = pages[pages.length - 1].results[hand];
+  const rows = ["overall", "slantC", "baseline", "size", "spacing", "stroke", "legibility"]
+    .filter(k => a[k] != null && b[k] != null).map(k => ({ k, a: a[k], b: b[k], d: b[k] - a[k] }));
+  return { first: pages[0], last: pages[pages.length - 1], n: pages.length, rows };
+}
+// Per-line scores split into thirds of the page and averaged over recent pages. A bottom third
+// that is reliably weaker is fatigue, and fatigue has its own drill. Mirror pages alternate
+// hands line by line, so they are left out.
+function fatigueCurve(S, hand, lastN = 12) {
+  const pages = S.filter(s => !isDrill(s) && s.mode !== "mirror" && s.results?.[hand] && s.lineScores?.length >= 6).slice(-lastN);
+  if (pages.length < 2) return null;
+  const sum = [0, 0, 0], cnt = [0, 0, 0];
+  for (const p of pages) p.lineScores.forEach((v, i) => {
+    const k = Math.min(2, Math.floor(i * 3 / p.lineScores.length));
+    sum[k] += v; cnt[k]++;
+  });
+  return { thirds: sum.map((s, i) => Math.round(s / cnt[i])), pages: pages.length };
 }
 
 // ---------- achievements ----------
@@ -2260,6 +2595,8 @@ function renderToday(S, st) {
   renderCurrentProject(S);
   planCache = loadPlan(S, false);
   renderPlan(S);
+  renderWeakLetters(S);
+  renderDelta(S);
 
   const dR = deltaFor(S, "R"), dL = deltaFor(S, "L");
   const sign = v => v == null ? "–" : (v > 0 ? "+" : "") + v;
@@ -2310,7 +2647,8 @@ function deltaFor(S, h) {
   return rec != null && old != null ? Math.round(rec - old) : null;
 }
 function renderPlan(S) {
-  const doneToday = new Set(S.filter(s => isDrill(s) && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
+  // a page photographed off a drill's own guide sheet counts as that drill done, no logging needed
+  const doneToday = new Set(S.filter(s => s.drillId && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
   const drills = planCache.ids.map(id => DRILL_MAP[id]).filter(Boolean);
   const ps = planCache.program;
   $("plan-reroll").classList.toggle("hidden", !!ps); // a syllabus isn't yours to reshuffle
@@ -2330,6 +2668,29 @@ function renderPlan(S) {
   bindDrillButtons("plan-list");
 }
 $("plan-reroll").onclick = () => { planCache = loadPlan(loadSessions(), true); renderPlan(loadSessions()); };
+function renderWeakLetters(S) {
+  const wl = weakLetters(S, prefs.hand);
+  $("weak-letters").classList.toggle("hidden", !wl.length);
+  if (!wl.length) return;
+  $("weak-letters").innerHTML = `OCR stumbles most on your <b>${esc(wl.join(" "))}</b> — ` +
+    `<button class="linky" id="weak-sheet">print a sheet dense in them</button>`;
+  $("weak-sheet").onclick = () => openDrill(prefs.style === "cursive" ? "cur-joins" : "print-alphabet", { text: letterDenseText(wl) });
+}
+// Before and after: the day's first page against its latest, the plan's target metric in bold.
+function renderDelta(S) {
+  const dd = dayDelta(S, prefs.hand);
+  $("delta-card").classList.toggle("hidden", !dd);
+  if (!dd) return;
+  const target = planCache?.weak?.[0], tr = target && dd.rows.find(r => r.k === target);
+  const sgn = v => (v > 0 ? "+" : "") + v;
+  $("delta-pill").textContent = `${dd.n} pages today`;
+  $("delta-why").textContent = tr
+    ? `Today's plan aimed at ${METRIC_LABEL[target].toLowerCase()}: ${tr.a} on the first page, ${tr.b} on the latest (${sgn(tr.d)}).`
+    : `The first page of the day against the latest, ${handName(prefs.hand).toLowerCase()} hand.`;
+  $("delta-table").querySelector("tbody").innerHTML = `<tr><th>Score</th><th>First</th><th>Latest</th><th>Change</th></tr>` +
+    dd.rows.map(r => `<tr${r.k === target ? ' style="font-weight:600"' : ""}><td>${r.k === "overall" ? "Overall" : METRIC_LABEL[r.k]}</td>` +
+      `<td class="muted">${r.a}</td><td><b>${r.b}</b></td><td><span class="delta ${r.d > 0 ? "up" : r.d < 0 ? "down" : "flat"}">${sgn(r.d)}</span></td></tr>`).join("");
+}
 
 // ---------- programs ----------
 const loadProgram = () => JSON.parse(localStorage.getItem("hwh-program") || "null");
@@ -2363,7 +2724,8 @@ function renderPrograms(S) {
   }
   const { prog, week, plan, done } = st;
   $("program-week").textContent = done ? "Finished" : `Week ${week} of ${prog.weeks.length}`;
-  const doneToday = new Set(S.filter(s => isDrill(s) && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
+  // a page photographed off a drill's own guide sheet counts as that drill done, no logging needed
+  const doneToday = new Set(S.filter(s => s.drillId && dayKey(s.t) === dayKey(Date.now())).map(s => s.drillId));
   $("program-body").innerHTML = `
     <div class="hero"><span class="big">${prog.ic}</span><span class="sub"><b>${esc(prog.title)}</b><br>${esc(plan.focus)}</span></div>
     <div class="bar"><i class="${done ? "done" : ""}" style="width:${Math.round(week / prog.weeks.length * 100)}%"></i></div>
@@ -2410,7 +2772,7 @@ function renderPractice(S) {
     (target === "all" || d.targets.includes(target)));
   $("drill-count").textContent = `${list.length} of ${DRILLS.length}`;
   const byDrill = {};
-  for (const s of S) if (isDrill(s) && s.drillId) (byDrill[s.drillId] ||= []).push(s.t);
+  for (const s of S) if (s.drillId) (byDrill[s.drillId] ||= []).push(s.t); // logged, or scanned off its sheet
   $("drill-grid").innerHTML = list.map(d => {
     const l = byDrill[d.id];
     const hist = l ? `done ${l.length}× · last ${fmtDate(Math.max(...l))}` : "not tried yet";
@@ -2459,16 +2821,33 @@ function paintTimer() {
   $("timer-toggle").textContent = timer.running ? "Pause" : timer.left === timer.total ? "Start" : "Resume";
 }
 function stopTimer() { clearInterval(timer.id); timer.id = null; timer.running = false; }
+// Two soft notes from an oscillator — no audio file to ship — plus the Vibration API on phones.
+function chime() {
+  try { navigator.vibrate?.([200, 100, 200]); } catch (e) {}
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    for (const [f, t] of [[784, 0], [1046, 0.22]]) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.3);
+      o.connect(g).connect(ac.destination);
+      o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.32);
+    }
+  } catch (e) { /* no audio — the status line still says time is up */ }
+}
 $("timer-toggle").onclick = () => {
   if (timer.running) { stopTimer(); paintTimer(); return; }
   timer.running = true;
   timer.id = setInterval(() => {
     timer.left = Math.max(0, timer.left - 1);
+    // speed drills get a fresh prompt every minute, so nothing is written from memory
+    if (timer.left && timer.left % 60 === 0 && runDrill?.cat === "Speed") nextPrompt();
     if (!timer.left) {
       stopTimer();
       $("run-status").textContent = "Time — log it below when you're done writing.";
-      // ponytail: no audio file to ship; the Vibration API covers phones, desktop just shows the text
-      try { navigator.vibrate?.([200, 100, 200]); } catch (e) {}
+      chime();
     }
     paintTimer();
   }, 1000);
@@ -2476,12 +2855,25 @@ $("timer-toggle").onclick = () => {
 };
 $("timer-reset").onclick = () => { stopTimer(); timer.left = timer.total; paintTimer(); $("run-status").textContent = ""; };
 
-function openDrill(id) {
+// rotating prompts for the speed and endurance drills — G for the next one
+let promptI = -1;
+function nextPrompt() {
+  promptI = (promptI + 1) % TEXT_POOL.length;
+  $("run-prompt").textContent = "Write: " + TEXT_POOL[promptI];
+}
+
+// Typeface, ink, faintness and trace layout follow the user from drill to drill; the ruling,
+// the text and the paper are per sheet and reset each time a drill opens.
+const SHEET_PREF_KEYS = ["sheet-font", "sheet-ink", "sheet-faint", "sheet-trace"];
+const SHEET_PREF_DEFAULT = { "sheet-font": "serif", "sheet-ink": "grey", "sheet-faint": "30", "sheet-trace": "one" };
+// `extra.text` preloads the model text — the weak-letter sheet uses it
+function openDrill(id, extra = {}) {
   const d = DRILL_MAP[id];
   if (!d) return;
   runDrill = d;
   $("sheet-title").textContent = d.ic + " " + d.title;
   $("run-how").textContent = d.how;
+  $("run-fix").textContent = d.fix ? "Watch for: " + d.fix : "";
   $("run-tags").innerHTML = `<span class="tag">${esc(d.cat)}</span><span class="tag">${d.min} min</span>` +
     d.targets.map(t => `<span class="tag">${esc(METRIC_LABEL[t] || t)}</span>`).join("");
   stopTimer();
@@ -2489,16 +2881,25 @@ function openDrill(id) {
   paintTimer();
   $("run-status").textContent = "";
   $("run-min").value = d.min;
-  setRunHand(d.hands === "L" ? "L" : d.hands === "R" ? "R" : prefs.hand);
   // a drill's own x-height wins over the global preference (the left-hand "go big" drill
   // asks for 14mm); the user can still override either in the controls below the sheet
   const xh = d.sheet?.xh || prefs.xh;
   $("sheet-xh").value = xh;
   $("sheet-lines").value = d.sheet?.lines || defaultLines(xh);
   $("sheet-slant").value = prefs.slant;
-  $("sheet-opts").classList.toggle("hidden", !d.sheet);
-  $("sheet-print").classList.toggle("hidden", !d.sheet);
-  paintSheet();
+  $("sheet-kind").value = "auto";
+  $("sheet-land").checked = false;
+  $("sheet-margin").checked = false;
+  for (const k of SHEET_PREF_KEYS) $(k).value = prefs.sheet?.[k] ?? SHEET_PREF_DEFAULT[k];
+  $("sheet-text").value = extra.text || "";
+  if (extra.text) $("sheet-trace").value = "alt"; // custom text is for copying out: model, blank, model, blank
+  $("run-prompt").classList.toggle("hidden", d.cat !== "Speed");
+  if (d.cat === "Speed") nextPrompt();
+  renderSelfCheck(d);
+  for (const el of ["sheet-opts", "sheet-textopts", "sheet-text", "sheet-print", "sheet-png", "sheet-display"])
+    $(el).classList.toggle("hidden", !d.sheet);
+  setRunHand(d.hands === "L" ? "L" : d.hands === "R" ? "R" : prefs.hand); // fills the passage list and paints
+  $("sheet-passage").value = "";
   $("sheet").classList.add("on");
   $("sheet-body").scrollTop = 0;
 }
@@ -2507,25 +2908,159 @@ function setRunHand(h) {
   runHand = h;
   $("run-R").classList.toggle("on", h === "R");
   $("run-L").classList.toggle("on", h === "L");
+  fillPassages(); // the weak-letter passage is per hand
+  paintSheet();   // the header names the hand, and a left hand wants the model on the right
 }
 $("run-R").onclick = () => setRunHand("R");
 $("run-L").onclick = () => setRunHand("L");
-function paintSheet() {
-  if (!runDrill?.sheet) { $("sheet-paper").innerHTML = ""; return; }
-  $("sheet-paper").innerHTML = sheetSvg(adaptSheet(runDrill.sheet, scriptOf(prefs.script)), {
-    lines: +$("sheet-lines").value || undefined,
-    xh: +$("sheet-xh").value || prefs.xh,
-    slant: +$("sheet-slant").value || 0,
-  });
+function renderSelfCheck(d) {
+  const items = SELF_CHECK[d.cat] || [];
+  $("run-check").classList.toggle("hidden", !items.length);
+  $("run-check").innerHTML = `<span class="flab">Before you log</span>` +
+    items.map(t => `<label><input type="checkbox"> ${esc(t)}</label>`).join("");
 }
-for (const id of ["sheet-lines", "sheet-xh", "sheet-slant"]) $(id).oninput = paintSheet;
+const PASSAGE_WEAK = "weak";
+function fillPassages() {
+  const wl = weakLetters(loadSessions(), runHand);
+  const was = $("sheet-passage").value;
+  $("sheet-passage").innerHTML = `<option value="">Drill's own text</option>` +
+    (wl.length ? `<option value="${PASSAGE_WEAK}">Your weak letters: ${esc(wl.join(" "))}</option>` : "") +
+    PASSAGES.map((p, i) => `<option value="${i}">${esc(p.t)}</option>`).join("");
+  $("sheet-passage").value = was;
+}
+$("sheet-passage").onchange = e => {
+  const v = e.target.value;
+  $("sheet-text").value = v === "" ? "" : v === PASSAGE_WEAK ? letterDenseText(weakLetters(loadSessions(), runHand)) : PASSAGES[+v].s;
+  if (v !== "" && $("sheet-trace").value === "one") $("sheet-trace").value = "alt";
+  paintSheet();
+};
+const cpLines = () => defaultLines(+$("sheet-xh").value || prefs.xh, $("sheet-land").checked, /copperplate|spencerian/.test($("sheet-kind").value) ? 3.55 : 2.75);
+$("sheet-kind").onchange = e => {
+  // Copperplate is written at 55° off the baseline, Spencerian at 52°; the slant box counts from vertical
+  const pre = { copperplate: 35, spencerian: 38 }[e.target.value];
+  if (pre != null) $("sheet-slant").value = pre;
+  $("sheet-lines").value = cpLines();
+  paintSheet();
+};
+$("sheet-land").onchange = () => { $("sheet-lines").value = cpLines(); paintSheet(); };
+// the web fonts are fetched once, the first time a sheet asks for them; offline this is a no-op
+// and the stack falls back. Each one repaints when it lands so the x-height fit is remeasured.
+let fontsAsked = false;
+function ensureFonts() {
+  if (fontsAsked) return;
+  fontsAsked = true;
+  const l = document.createElement("link"); l.rel = "stylesheet"; l.href = FONT_URL;
+  document.head.appendChild(l);
+  for (const [fam, key] of [["Andika", "print"], ["'Cedarville Cursive'", "cursive"]])
+    document.fonts?.load(`16px ${fam}`).then(() => { delete xRatioCache[SHEET_FONTS[key]]; paintSheet(); }, () => {});
+}
+$("sheet-font").onchange = paintSheet;
+for (const id of SHEET_PREF_KEYS)
+  $(id).addEventListener("change", () => { prefs.sheet = Object.fromEntries(SHEET_PREF_KEYS.map(k => [k, $(k).value])); savePrefs(); });
+// the model text in force: the user's own, else the drill's, in the script being written
+function sheetTextOf() {
+  return $("sheet-text").value.trim() || (runDrill?.sheet ? adaptSheet(runDrill.sheet, scriptOf(prefs.script)).text : "") || "";
+}
+function sheetOpts() {
+  const fontKey = $("sheet-font").value;
+  return {
+    lines: +$("sheet-lines").value || undefined, xh: +$("sheet-xh").value || prefs.xh, slant: +$("sheet-slant").value || 0,
+    kind: $("sheet-kind").value, land: $("sheet-land").checked, margin: $("sheet-margin").checked,
+    text: $("sheet-text").value.trim(), trace: $("sheet-trace").value,
+    font: fontKey === "serif" ? undefined : SHEET_FONTS[fontKey], // "serif" keeps the script's own stack
+    ink: $("sheet-ink").value, faint: +$("sheet-faint").value || 30, leftModel: runHand === "L",
+    // the header the scanner reads back: drill, date and hand, in the one format parseSheetHeader knows
+    header: runDrill ? `HH ${runDrill.id} ${dayKey(Date.now())} ${runHand}` : "",
+  };
+}
+function paintSheet() {
+  if (!runDrill?.sheet) { $("sheet-paper").innerHTML = ""; $("run-demo").innerHTML = ""; return; }
+  const o = sheetOpts();
+  if (o.font) ensureFonts();
+  $("sheet-paper").innerHTML = sheetSvg(adaptSheet(runDrill.sheet, scriptOf(prefs.script)), o);
+  $("sheet-paper").classList.toggle("land", o.land);
+  $("page-orient").textContent = o.land ? "@media print { @page { size: A4 landscape; } }" : "";
+  $("run-dictate").classList.toggle("hidden", !(window.speechSynthesis && sheetTextOf()));
+  paintDemo();
+}
+// The model text draws itself above the instructions: the first few words, once, replay on tap.
+function paintDemo() {
+  const host = $("run-demo");
+  const text = sheetTextOf();
+  if (!text || $("sheet-trace").value === "none") { host.innerHTML = ""; return; }
+  const sc = scriptOf(prefs.script), rtl = sc.dir === "rtl";
+  const words = text.split(/\s+/).slice(0, 5).join(" ");
+  const font = $("sheet-font").value === "serif" ? sc.font : SHEET_FONTS[$("sheet-font").value];
+  const spans = [...words].map((ch, i) =>
+    `<tspan style="animation-delay:${(i * 0.1).toFixed(1)}s">${ch === " " ? "&#160;" : esc(ch)}</tspan>`).join("");
+  host.innerHTML = `<svg viewBox="0 0 400 54" aria-hidden="true"><text x="${rtl ? 396 : 4}" y="40" font-size="30"` +
+    `${rtl ? ` direction="rtl"` : ""} font-family="${font}">${spans}</text></svg>`;
+  host.onclick = paintDemo;
+}
+for (const id of ["sheet-lines", "sheet-xh", "sheet-slant", "sheet-margin", "sheet-trace", "sheet-ink", "sheet-faint"]) $(id).oninput = paintSheet;
+$("sheet-text").oninput = () => { $("sheet-passage").value = ""; paintSheet(); };
 $("sheet-print").onclick = () => print();
-$("sheet-close").onclick = () => { stopTimer(); $("sheet").classList.remove("on"); };
+// display mode: the sheet alone, full screen, to copy from a tablet or e-ink screen propped by the notebook
+$("sheet-display").onclick = () => { const p = $("sheet-paper"); (p.requestFullscreen || p.webkitRequestFullscreen)?.call(p); };
+// The sheet rasterised at an e-ink panel's size, centred on white, for use as a notebook template.
+async function svgToPng(svg, w, h) {
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    const img = new Image();
+    await new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error("could not rasterise the sheet")); img.src = url; });
+    const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+    const sw = +vb[1], sh = +vb[2], k = Math.min(w / sw, h / sh), dw = sw * k, dh = sh * k;
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, w, h);
+    x.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    return c.toDataURL("image/png");
+  } finally { URL.revokeObjectURL(url); }
+}
+$("sheet-png").onclick = async () => {
+  const svg = $("sheet-paper").innerHTML;
+  if (!svg) return;
+  // ponytail: 1404×1872 is the reMarkable 2 and Supernote A5 X panel; other devices scale a PNG fine
+  const land = $("sheet-land").checked;
+  try {
+    const a = document.createElement("a");
+    a.href = await svgToPng(svg, land ? 1872 : 1404, land ? 1404 : 1872);
+    a.download = `${runDrill?.id || "sheet"}-template.png`;
+    a.click();
+    $("run-status").textContent = "Template saved. Web fonts fall back to the device's own in a PNG.";
+  } catch (e) { $("run-status").textContent = "PNG export failed — " + e.message; }
+};
+// Dictation: the model text is read aloud and hidden from the sheet, so it is written from
+// hearing. What was dictated is remembered for a day; OCR of the written page then scores
+// the words that read back.
+const DICT_KEY = "hwh-dictation";
+const SPEECH_LANG = { eng: "en", rus: "ru", ell: "el", heb: "he", ara: "ar", hin: "hi", tha: "th", chi_sim: "zh", kor: "ko" };
+$("run-dictate").onclick = () => {
+  const text = sheetTextOf();
+  if (!text || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  for (const part of text.split(/(?<=[.!?;,])\s+|\n+/).filter(Boolean)) {
+    const u = new SpeechSynthesisUtterance(part);
+    u.rate = 0.85; u.lang = SPEECH_LANG[scriptOf(prefs.script).ocr] || "en";
+    speechSynthesis.speak(u);
+  }
+  $("sheet-trace").value = "none";
+  paintSheet();
+  try { localStorage.setItem(DICT_KEY, JSON.stringify({ text, t: Date.now() })); } catch (e) {}
+  $("run-status").textContent = "Dictating — write it down, then photograph the page and run OCR to see how much reads back. Tap again to repeat.";
+};
+$("sheet-close").onclick = () => { stopTimer(); window.speechSynthesis?.cancel(); $("sheet").classList.remove("on"); };
 addEventListener("keydown", e => {
-  if (e.key !== "Escape") return;
-  if ($("scans").classList.contains("on")) $("scans-close").click();
-  else if ($("detail").classList.contains("on")) $("detail").classList.remove("on");
-  else if ($("sheet").classList.contains("on")) $("sheet-close").click();
+  if (e.key === "Escape") {
+    if ($("scans").classList.contains("on")) $("scans-close").click();
+    else if ($("detail").classList.contains("on")) $("detail").classList.remove("on");
+    else if ($("sheet").classList.contains("on")) $("sheet-close").click();
+    return;
+  }
+  // in the runner, hands off the mouse: S starts and pauses the timer, G rotates the prompt
+  if (!$("sheet").classList.contains("on") || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (e.key === "s" || e.key === "S") $("timer-toggle").click();
+  else if ((e.key === "g" || e.key === "G") && runDrill?.cat === "Speed") nextPrompt();
 });
 $("run-log").onclick = () => {
   if (!runDrill) return;
@@ -2742,6 +3277,7 @@ function renderProgress(S, st) {
 
   renderCompare(S);
   renderWeekly(S);
+  renderFatigue(S);
   drawHeat(S);
   drawTrend(S);
 
@@ -2844,6 +3380,62 @@ function renderWeekly(S) {
       return `<tr><td>${r.label}</td><td><b>${r.now ?? "–"}</b></td><td class="muted">${r.was ?? "–"}</td><td>${chip}</td></tr>`;
     }).join("");
 }
+// top, middle and bottom third of the page as three bars, and the drill if the bottom sags
+function renderFatigue(S) {
+  const fc = fatigueCurve(S, prefs.hand);
+  $("fatigue-card").classList.toggle("hidden", !fc);
+  if (!fc) return;
+  const col = prefs.hand === "R" ? "var(--right)" : "var(--left)";
+  const W = Math.max(320, $("fatigue-chart").clientWidth || 640), labW = 96, rowH = 28, barH = 10, plotW = W - labW - 44;
+  $("fatigue-chart").innerHTML = `<svg viewBox="0 0 ${W} ${rowH * 3 + 6}" style="width:100%;height:auto" role="img" aria-label="Average line score by third of the page">` +
+    ["Top third", "Middle", "Bottom third"].map((l, i) => {
+      const v = fc.thirds[i], y = 4 + i * rowH, x1 = labW + v / 100 * plotW;
+      return `<text x="0" y="${y + 11}" font-size="12" fill="var(--ink-2)">${l}</text>` +
+        `<rect x="${labW}" y="${y}" width="${(x1 - labW).toFixed(1)}" height="${barH}" rx="3" fill="${col}"/>` +
+        `<text x="${(x1 + 5).toFixed(1)}" y="${y + 10}" font-size="12" fill="var(--ink-2)">${v}</text>`;
+    }).join("") + `</svg>`;
+  const drop = fc.thirds[0] - fc.thirds[2];
+  $("fatigue-note").textContent = `line scores over your last ${fc.pages} ${handName(prefs.hand).toLowerCase()}-hand pages`;
+  $("fatigue-line").innerHTML = drop >= 5
+    ? `The bottom third runs <b>${drop} points</b> below the top — the hand tires before the page ends. ` +
+      `<button class="act" data-drill="endure-page">${DRILL_MAP["endure-page"].ic} Endurance page · ${DRILL_MAP["endure-page"].min} min</button>`
+    : drop <= -5 ? "You warm into the page: the bottom third scores higher than the top. A longer warm-up would lift the first lines."
+    : "Steady from the top of the page to the bottom.";
+  bindDrillButtons("fatigue-line");
+}
+// One printable page: the numbers, the first and latest page side by side, every score then
+// and now. For a teacher, a child, or a wall. Built from what is already stored.
+function reportHtml(S, st, thumbs = loadThumbs(), hand = cmpHand || prefs.hand) {
+  const pages = S.filter(s => !isDrill(s) && s.results?.[hand]?.overall != null);
+  const first = pages[0], last = pages[pages.length - 1];
+  const keys = ["overall", "slantC", "baseline", "size", "spacing", "stroke", "legibility"];
+  const avgOf = (arr, k) => { const v = arr.map(s => s.results[hand][k]).filter(x => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+  const early = pages.slice(0, 3), late = pages.slice(-3);
+  const rows = keys.map(k => ({ k, a: avgOf(early, k), b: avgOf(late, k) })).filter(r => r.a != null || r.b != null);
+  const byCat = {};
+  for (const s of S) if (s.drillId && DRILL_MAP[s.drillId]) byCat[DRILL_MAP[s.drillId].cat] = (byCat[DRILL_MAP[s.drillId].cat] || 0) + 1;
+  const wl = weakLetters(S, hand);
+  const fig = s => `<figure>${thumbs[s.id] ? `<img src="${thumbs[s.id]}" alt="">` : `<div class="none">no image kept</div>`}` +
+    `<figcaption><b>${s.results[hand].overall}</b> overall · ${new Date(s.t).toLocaleDateString()}</figcaption></figure>`;
+  const tile = (v, l) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  return `<h1>Handwriting progress</h1>
+    <p>${handName(hand)} hand · ${first ? `${new Date(first.t).toLocaleDateString()} to ${new Date(last.t).toLocaleDateString()}` : "no pages yet"} · printed ${new Date().toLocaleDateString()}</p>
+    <div class="tiles">${tile(st.pages, "pages analyzed")}${tile(st.drills, "drills logged")}${tile(fmtMin(st.minutes), "practised")}${tile(st.bestStreak, "best streak, days")}${tile(st.best < 0 ? "–" : st.best, "best overall")}</div>
+    ${pages.length >= 2 ? `<h2>Then and now</h2><div class="cmp">${fig(first)}${fig(last)}</div>` : ""}
+    ${rows.length ? `<h2>Scores: first three pages against the last three</h2><table><tbody><tr><th>Score</th><th>Then</th><th>Now</th><th>Change</th></tr>` +
+      rows.map(r => `<tr><td>${r.k === "overall" ? "Overall" : METRIC_LABEL[r.k]}</td><td>${r.a ?? "–"}</td><td><b>${r.b ?? "–"}</b></td>` +
+        `<td>${r.a != null && r.b != null ? (r.b - r.a > 0 ? "+" : "") + (r.b - r.a) : "–"}</td></tr>`).join("") + `</tbody></table>` : ""}
+    ${Object.keys(byCat).length ? `<h2>Drills</h2><p>${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${esc(c)} ${n}`).join(" · ")}</p>` : ""}
+    ${wl.length ? `<p>Letters the OCR engine stumbles on most: <b>${esc(wl.join(" "))}</b></p>` : ""}
+    <p class="muted">Scores are 0–100 consistency measures taken from photographed pages. The reference guide explains each one.</p>`;
+}
+$("report-btn").onclick = () => {
+  const S = loadSessions();
+  $("report").innerHTML = reportHtml(S, deriveStats(S));
+  document.body.classList.add("print-report");
+  print();
+};
+addEventListener("afterprint", () => document.body.classList.remove("print-report"));
 
 // ---------- one session, in full ----------
 function openDetail(id, S = loadSessions()) { // S injectable so the self-test never touches saved data
@@ -2891,6 +3483,8 @@ function openDetail(id, S = loadSessions()) { // S injectable so the self-test n
         <span class="pill">${s.mode === "mirror" ? "mirror prime" : "single hand"}</span>
         ${s.durationMin ? `<span class="pill">${s.durationMin} min</span>` : ""}
         ${s.match != null ? `<span class="pill hot">${s.match}% mirror match</span>` : ""}
+        ${s.drillId && DRILL_MAP[s.drillId] ? `<span class="pill">${DRILL_MAP[s.drillId].ic} ${esc(DRILL_MAP[s.drillId].title)} sheet</span>` : ""}
+        ${s.dictation != null ? `<span class="pill">${s.dictation}% of the dictation read back</span>` : ""}
       </div>
     </div>
     <div class="card">${block("R")}${block("L")}</div>
@@ -3222,6 +3816,24 @@ function runAnalysis(img, keepOcr) {
     ctx.stroke();
   });
   ctx.globalAlpha = 1;
+  // Two more things drawn where they happened: a slant tick at the start of each line, amber
+  // when that line leans more than 6° off the page's own average, and a height bar at the
+  // right edge, amber when the line is over a quarter taller or shorter than the typical one.
+  const pageDeg = r.metrics ? r.metrics.meanSlant : r.mirror.dom.meanSlant;
+  const warnCol = cssVar("--warn") || "#eda100";
+  rows.forEach((l, i) => {
+    const s = r.stats[i], h = l.y1 - l.y0;
+    if (r.sc.slant && s.slants.length && s.baseline) {
+      const wsum = s.slants.reduce((a, x) => a + x.w, 0) || 1;
+      const deg = s.slants.reduce((a, x) => a + x.deg * x.w, 0) / wsum;
+      const x0 = s.baseline.x0 + 4, dx = Math.tan(deg * Math.PI / 180) * h;
+      ctx.strokeStyle = Math.abs(deg - pageDeg) > 6 ? warnCol : "rgba(110,120,130,.85)";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x0, l.y1); ctx.lineTo(x0 + dx, l.y0); ctx.stroke();
+    }
+    ctx.fillStyle = Math.abs(l.sizeDev) > 0.25 ? warnCol : "rgba(110,120,130,.45)";
+    ctx.fillRect(pv.width - 7, l.y0, 4, h);
+  });
 
   const tips = [];
   let weak = null, weakHand = prefs.hand;
@@ -3615,14 +4227,31 @@ $("ocr-btn").onclick = async () => {
   try {
     // full-res source reads better than the analyzer's downscale; language follows the script
     const data = await ocrPage(cur.img || cur.r.canvas, scriptOf(prefs.script).ocr);
-    cur.ocr = { date: parseOcrDate(data.text), dur: parseDuration(data.text), conf: Math.round(data.confidence) };
+    const header = parseSheetHeader(data.text);
+    cur.ocr = { date: parseOcrDate(data.text) || header?.date || null, dur: parseDuration(data.text), conf: Math.round(data.confidence),
+      letters: letterConf(data.symbols), header };
     if (cur.ocr.dur && !$("dur").value) $("dur").value = cur.ocr.dur;
     if (cur.ocr.date) {
       $("ocr-radio").disabled = false;
       $("ocr-date").textContent = "(" + new Date(cur.ocr.date).toLocaleDateString() + ")";
     } else $("ocr-date").textContent = "(no date found)";
-    st.textContent = `Legibility ${cur.ocr.conf}/100` +
-      (cur.ocr.date ? ` · date found` : "") + (cur.ocr.dur ? ` · ${cur.ocr.dur} min found` : "");
+    const bits = [`Legibility ${cur.ocr.conf}/100`];
+    if (cur.ocr.date) bits.push("date found");
+    if (cur.ocr.dur) bits.push(`${cur.ocr.dur} min found`);
+    if (header) bits.push(`guide sheet: ${DRILL_MAP[header.drillId].title} — the drill will be marked done`);
+    // a dictation from the last day is checked word by word against what came back
+    const dict = jparse(DICT_KEY, "null");
+    const wa = dict && Date.now() - dict.t < DAY ? wordAccuracy(dict.text, data.text) : null;
+    if (wa) { cur.ocr.dictation = wa.pct; bits.push(`dictation: ${wa.hit} of ${wa.total} words read back (${wa.pct}%)`); }
+    st.textContent = bits.join(" · ");
+    // the header names the hand it was printed for; if the page is filed under the other, offer the switch
+    if (header?.hand && header.hand !== prefs.hand) {
+      const dt = $("detect");
+      dt.classList.remove("hidden");
+      dt.insertAdjacentHTML("beforeend", `<div class="guess"><span><b>The sheet header says ${handName(header.hand).toLowerCase()} hand</b> — ` +
+        `this page is set to ${handName(prefs.hand).toLowerCase()}.</span><button class="act" id="hdr-hand">Switch to ${handName(header.hand).toLowerCase()}</button></div>`);
+      $("hdr-hand").onclick = () => { prefs.hand = header.hand; syncOptions(); renderAll(); runAnalysis(cur.img, true); };
+    }
   } catch (e) {
     st.textContent = "OCR failed — it needs internet the first time it runs.";
   }
@@ -3657,8 +4286,15 @@ $("save-btn").onclick = () => {
   savePrefs();
   s.push({ id, t, kind: "page", style: prefs.style, mode: prefs.mode, script: prefs.script,
     durationMin: +$("dur").value || null, results, match, projectId,
-    srcKey: cur.srcKey, hash: cur.hash });
+    srcKey: cur.srcKey, hash: cur.hash,
+    // from the guide sheet's header, OCR's per-letter confidence, a dictation check, and the
+    // per-line scores (fatigue curve) — all optional, all dropped from the JSON when absent
+    drillId: cur.ocr?.header?.drillId,
+    letters: cur.ocr?.letters && Object.keys(cur.ocr.letters).length ? cur.ocr.letters : undefined,
+    dictation: cur.ocr?.dictation,
+    lineScores: cur.r.stats.length >= 2 ? lineBreakdown(cur.r.stats).map(l => l.score) : undefined });
   saveSessions(s);
+  if (cur.ocr?.dictation != null) localStorage.removeItem(DICT_KEY); // scored once, not against the next page too
   saveThumb(id, cur.r.canvas, s); // after the push, so pruning sees the new session
   try { const k = "portal-activity", a = JSON.parse(localStorage.getItem(k) || "[]"); a.push([Math.round(Date.now() / 1000), "HandwritingHelper", "write", Math.max(1, Math.round((+$("dur").value || 10) / 10))]); localStorage.setItem(k, JSON.stringify(a.slice(-2000))); } catch (_) { /* quota — ignore */ } // maker-portal character sheet
   if (cur.drive) { // remember which scans are already logged, per page
@@ -4399,6 +5035,89 @@ if (location.search.includes("selftest")) {
   pass = check("badges: none unlocked on an empty history", BADGES.every(b => !b.test(deriveStats([])))) && pass;
   pass = check("badges: first page unlocks", BADGES.find(b => b.id === "first").test(st)) && pass;
   pass = check("badges: 30-day streak stays locked", !BADGES.find(b => b.id === "streak30").test(st)) && pass;
+
+  // --- model text, passages, sheet options ---
+  const mono = s => s.length * 5; // 5mm a character: a deterministic ruler
+  pass = check("wrap: fits on one line unchanged", wrapText("ab cd", 100, mono).join("|") === "ab cd") && pass;
+  pass = check("wrap: breaks at a word boundary", wrapText("aaaa bbbb cccc", 45, mono).join("|") === "aaaa bbbb|cccc") && pass;
+  pass = check("wrap: a newline forces a break", wrapText("a\nb", 100, mono).length === 2) && pass;
+  pass = check("wrap: an overlong word keeps its own line", wrapText("abcdefghijklmnop q", 20, mono)[0] === "abcdefghijklmnop") && pass;
+  pass = check("passages: every entry has a title and text", PASSAGES.every(p => p.t && p.s.length > 10)) && pass;
+  pass = check("prompts: pool is big enough to rotate, got " + TEXT_POOL.length, TEXT_POOL.length >= 15) && pass;
+  const longText = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+  const texts = svg => (svg.match(/<text/g) || []).length - 1; // minus the 100 mm label
+  pass = check("sheet: alternate trace puts text on lines 1 and 3 of 4, got " + texts(sheetSvg({ kind: "ruled" }, { lines: 4, xh: 8, text: longText, trace: "alt" })),
+    texts(sheetSvg({ kind: "ruled" }, { lines: 4, xh: 8, text: longText, trace: "alt" })) === 2) && pass;
+  pass = check("sheet: every-line trace fills all four", texts(sheetSvg({ kind: "ruled" }, { lines: 4, xh: 8, text: longText, trace: "all" })) === 4) && pass;
+  pass = check("sheet: first-line trace prints the model once", texts(sheetSvg({ kind: "ruled", text: "hello world" }, { lines: 4, xh: 8 })) === 1) && pass;
+  pass = check("sheet: hidden trace prints no model", texts(sheetSvg({ kind: "ruled", text: "hello" }, { lines: 4, xh: 8, trace: "none" })) === 0) && pass;
+  pass = check("sheet: the user's text beats the drill's", sheetSvg({ kind: "ruled", text: "drill" }, { lines: 2, xh: 8, text: "mine" }).includes(">mine<")) && pass;
+  pass = check("sheet: left hand gets the model on the right", /text-anchor="end"/.test(sheetSvg({ kind: "ruled", text: "abc" }, { lines: 2, xh: 8, leftModel: true }))) && pass;
+  pass = check("sheet: dotted ink strokes instead of filling", /stroke-dasharray="0.7 0.6"/.test(sheetSvg({ kind: "ruled", text: "abc" }, { lines: 2, xh: 8, ink: "dotted" }))) && pass;
+  pass = check("sheet: faintness sets the opacity", /fill-opacity="0.60"/.test(sheetSvg({ kind: "ruled", text: "abc" }, { lines: 2, xh: 8, faint: 60 }))) && pass;
+  pass = check("sheet: header printed when asked", sheetSvg({ kind: "ruled" }, { lines: 2, xh: 8, header: "HH slant-rails 2026-11-08 L" }).includes("HH slant-rails 2026-11-08 L")) && pass;
+  pass = check("sheet: every sheet carries the 100 mm bar", /100 mm/.test(sheetSvg({ kind: "dots" }, { lines: 4, xh: 8 }))) && pass;
+  pass = check("sheet: dot grid is circles", (sheetSvg({ kind: "dots" }, { lines: 4, xh: 8 }).match(/<circle/g) || []).length > 100) && pass;
+  pass = check("sheet: Seyès has a margin rule", sheetSvg({ kind: "seyes" }, { lines: 4, xh: 8 }).includes(SHEET_INK.margin)) && pass;
+  pass = check("sheet: copperplate rails every 3 mm", (sheetSvg({ kind: "ruled" }, { lines: 1, xh: 8, kind: "copperplate", slant: 35 }).match(/<line/g) || []).length > 50) && pass;
+  pass = check("sheet: the ruling override wins over the drill's", sheetSvg({ kind: "ruled" }, { lines: 4, xh: 8, kind: "dots" }).includes("<circle")) && pass;
+  pass = check("sheet: landscape is wider", /viewBox="0 0 277 /.test(sheetSvg({ kind: "ruled" }, { lines: 4, xh: 8, land: true }))) && pass;
+  pass = check("sheet: binding margin shifts the rules", /translate\(12 0\)/.test(sheetSvg({ kind: "ruled" }, { lines: 4, xh: 8, margin: true }))) && pass;
+  pass = check("sheet: model text is sized from the font's x-height, ratio " + xRatio("Georgia, serif").toFixed(2), xRatio("Georgia, serif") > 0.3 && xRatio("Georgia, serif") < 0.7) && pass;
+  pass = check("sheet: fewer copperplate lines fit a page, got " + defaultLines(8, false, 3.55), defaultLines(8, false, 3.55) < defaultLines(8)) && pass;
+
+  // --- sheet header read back from a photographed page ---
+  const hdr = parseSheetHeader("some noise HH slant-rails 2026-11-08 L more text");
+  pass = check("header: drill, date and hand parsed", hdr && hdr.drillId === "slant-rails" && new Date(hdr.date).getDate() === 8 && hdr.hand === "L") && pass;
+  pass = check("header: survives OCR eating the hyphen", parseSheetHeader("HH slant rails 2026 11 08").drillId === "slant-rails") && pass;
+  pass = check("header: hand is optional", parseSheetHeader("HH base-ruled 2026-11-08").hand === null) && pass;
+  pass = check("header: a word after the date is not a hand", parseSheetHeader("HH base-ruled 2026-11-08 Lorem").hand === null) && pass;
+  pass = check("header: unknown drill is ignored", parseSheetHeader("HH not-adrill 2026-11-08 R") === null) && pass;
+  pass = check("header: ordinary text has no header", parseSheetHeader("The quick brown fox 2026-11-08") === null) && pass;
+
+  // --- weak letters ---
+  const syms = [1, 2, 3, 4].map(() => ({ text: "a", confidence: 60 })).concat([1, 2, 3].map(() => ({ text: "b", confidence: 95 })),
+    [{ text: "7", confidence: 10 }, { text: "c", confidence: 20 }]);
+  const lc = letterConf(syms);
+  pass = check("letters: averaged per letter", lc.a === 60 && lc.b === 95) && pass;
+  pass = check("letters: digits and one-offs dropped", !("7" in lc) && !("c" in lc)) && pass;
+  pass = check("letters: no symbols, no letters", Object.keys(letterConf(undefined)).length === 0) && pass;
+  const lSess = [{ id: "l1", t: 1, kind: "page", results: { R: { overall: 60 } }, letters: { a: 50, b: 90, c: 95, d: 40, e: 92, f: 93, g: 30 } }];
+  pass = check("letters: weakest first, got " + weakLetters(lSess, "R", 3).join(""), weakLetters(lSess, "R", 3).join("") === "gda") && pass;
+  pass = check("letters: too few seen means no verdict", weakLetters([{ id: "l2", t: 1, kind: "page", results: { R: {} }, letters: { a: 10 } }], "R").length === 0) && pass;
+  pass = check("letters: the other hand sees nothing", weakLetters(lSess, "L").length === 0) && pass;
+  pass = check("letters: densest sentence chosen", letterDenseText(["z", "q"], ["aaaa bbbb", "zq zq", "zz"]) === "zq zq") && pass;
+  pass = check("letters: no letters, no text", letterDenseText([]) === "") && pass;
+
+  // --- before/after, fatigue, dictation ---
+  const nowT = Date.now();
+  const ddS = [
+    { id: "x1", t: nowT - 6e4, kind: "page", results: { R: { overall: 60, baseline: 50, size: 70 } } },
+    { id: "x2", t: nowT - 1e4, kind: "page", results: { R: { overall: 66, baseline: 62, size: 70 } } },
+  ];
+  const dd = dayDelta(ddS, "R");
+  pass = check("delta: first against latest page today", dd && dd.n === 2 && dd.rows.find(r => r.k === "baseline").d === 12) && pass;
+  pass = check("delta: an unchanged score reads as 0", dd.rows.find(r => r.k === "size").d === 0) && pass;
+  pass = check("delta: one page is not a comparison", dayDelta([ddS[0]], "R") === null) && pass;
+  pass = check("delta: yesterday's pages don't count", dayDelta(ddS.map(s => ({ ...s, t: s.t - DAY })), "R") === null) && pass;
+  const fS = [1, 2, 3].map(i => ({ id: "f" + i, t: i, kind: "page", mode: "single", results: { R: { overall: 60 } }, lineScores: [80, 80, 70, 70, 50, 50] }));
+  const fc = fatigueCurve(fS, "R");
+  pass = check("fatigue: thirds averaged, got " + fc?.thirds.join("/"), fc && fc.thirds.join("/") === "80/70/50" && fc.pages === 3) && pass;
+  pass = check("fatigue: mirror pages and short pages excluded", fatigueCurve([{ ...fS[0], mode: "mirror" }, { ...fS[1], lineScores: [1, 2] }, fS[2]], "R") === null) && pass;
+  const wa = wordAccuracy("The quick brown fox", "the quick brwn fox jumps");
+  pass = check("dictation: 3 of 4 words read back, got " + wa.pct, wa.hit === 3 && wa.total === 4 && wa.pct === 75) && pass;
+  pass = check("dictation: a repeated word is credited only as often as it was said", wordAccuracy("a a b", "a b b").hit === 2) && pass;
+  pass = check("dictation: nothing dictated, no score", wordAccuracy("", "x") === null) && pass;
+
+  // --- drill content ---
+  pass = check("drills: every drill has a common-mistake line", DRILLS.every(d => d.fix && d.fix.length > 20)) && pass;
+  pass = check("drills: every category has a two-item self-check", CATEGORIES.every(c => SELF_CHECK[c]?.length === 2)) && pass;
+
+  // --- report ---
+  const rep = reportHtml(stS, st, {}, "R");
+  pass = check("report: has a title and the page count", rep.includes("Handwriting progress") && rep.includes("pages analyzed")) && pass;
+  pass = check("report: compares the first and latest page", rep.includes("Then and now") && (rep.match(/<figure>/g) || []).length === 2) && pass;
+  pass = check("report: empty history renders without throwing", reportHtml([], deriveStats([]), {}, "R").includes("no pages yet")) && pass;
 
   // --- summary + charts render ---
   pass = check("summary: has a header and a streak line",

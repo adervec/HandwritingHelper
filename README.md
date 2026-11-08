@@ -27,14 +27,36 @@ to it, and measures how much the writing varies:
 and pen control was added later — folding either in would silently re-scale every score already in
 your history and make the trend line a lie.
 
-Each page also gets a **line-by-line breakdown**, with the weakest line shaded on the image.
+Each page also gets a **line-by-line breakdown**, with the weakest line shaded on the image, a
+slant tick at the start of every line (amber where that line leans away from the page's average)
+and a height bar at the right edge (amber where a line is a quarter taller or shorter than typical).
+OCR also keeps a per-letter confidence, so Today can name the letters you write worst and print a
+sheet dense in them.
 
 **Practise.** 38 drills, each tagged with the metrics it trains, the hand and the style —
 warm-ups, slant rails, baseline work, x-height and ascender discipline, spacing, cursive joins,
-pen control, four left-hand-specific drills, mirror priming, and speed/endurance. Every drill opens
-a runner with a countdown timer and, where it helps, a **printable guide sheet generated in true
-millimetres** (ruled, slant rails at your angle, grid, letter boxes, mirror-prime pairs, trace
-lines). Sheets fit one page on both A4 and Letter.
+pen control, four left-hand-specific drills, mirror priming, and speed/endurance. Every drill names
+the mistake everyone makes in it, shows its model text drawing itself, and ends with a two-item
+self-check before you log it. The runner has a countdown timer (S to start, a chime at the end;
+speed drills rotate the prompt every minute, G for the next one) and, where it helps, a
+**printable guide sheet generated in true millimetres**. Sheets fit one page on both A4 and Letter,
+portrait or landscape, with an optional binding margin and a 100 mm bar to check the print scale.
+
+Rulings: ruled, slant rails at your angle, Copperplate 3:2:3 at 55°, Spencerian at 52°, Seyès,
+5 mm dot grid, square grid, letter boxes, mirror-prime pairs. **Model text** is yours to choose —
+a passage from the book you're copying out, a library of public-domain passages and classic
+drills, or a sentence built from the letters OCR says you write worst — wrapped across the sheet
+as model/blank pairs, every line, or the first line only; light grey, dotted, outline, non-photo
+cyan or sepia at any faintness; in a serif, a school print hand or a plain cursive, sized from the
+font's own x-height so it fills the band. A left hand gets the model on the right, where it won't be
+covered. **Display** shows the sheet alone, full screen, for copying from a tablet or e-ink screen;
+**PNG** saves it at reMarkable/Supernote resolution as a notebook template. **Dictate** reads the
+text aloud and hides it, so you write from hearing; OCR of the page then scores how many words read
+back.
+
+Every printed sheet carries a small header — drill, date, hand. Photograph the practised page, run
+OCR, and the header is read back: the session is tagged with the drill (which counts as done on
+today's plan), the date is offered, and a page filed under the wrong hand is flagged.
 
 **Follow a plan.** Today's routine is generated from your weakest metrics over the last eight pages:
 warm-up, two drills at the weak spot, one at the runner-up, then something to photograph. Or start
@@ -84,7 +106,11 @@ Unfiled. Deleting a project never deletes its pages; they just become unfiled.
 **Watch it move.** Weekly goal, streaks, an 18-week activity calendar, per-hand metric profile,
 trend chart, this-week-vs-last table, twelve achievements, and a **then-and-now view** that puts
 your first and latest page side by side — because a picture of your own handwriting from two months
-ago is more convincing than any number.
+ago is more convincing than any number. Two pages in one day give a **before-and-after card** on
+Today, with the plan's target metric in bold. **Down the page** averages line scores by third of the
+page over recent pages: a bottom third that is reliably weaker is fatigue, and points at the
+endurance drill. **Print report** makes a one-page summary — first and latest page, every score then
+and now, drills, streak — for a teacher, a child, or a wall.
 
 There's a [reference guide](https://adervec.github.io/HandwritingHelper/guide.html) covering how to
 photograph a page so the scores are trustworthy, posture and grip, the left-hand paper tilt, and a
