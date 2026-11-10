@@ -7,6 +7,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Handwriting Helper</title>
+<meta name="app-whatsnew" content="whatsnew.json">
 <!-- house font: Atkinson Hyperlegible by default, reader-changeable under Setup (shared across apps on this origin) -->
 <script src="https://adervec.github.io/font.js"></script>
 <style>
@@ -5398,6 +5399,9 @@ if (location.search.includes("selftest")) {
     localStorage.removeItem("someone-else"); localStorage.removeItem("hh-coach-reply-x");
     for (const [k, v] of Object.entries(keep)) localStorage.setItem(k, v);
     [driveTok, driveAcct, drivePic] = t; }
+
+  // --- what's new (whatsnew.json and THIRD-PARTY-NOTICES.md themselves are checked by selftest.mjs) ---
+  pass = check("whatsnew: declared with <meta name=app-whatsnew>", document.querySelector('meta[name="app-whatsnew"]')?.content === "whatsnew.json") && pass;
 
   // --- house font ---
   const fam = getComputedStyle(document.body).fontFamily;
