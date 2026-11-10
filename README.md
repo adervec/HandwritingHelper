@@ -134,7 +134,13 @@ that only this app can see. It uses a two-tier scope split: sync needs `drive.ap
 scans from a folder needs the wider `drive.readonly`, requested separately and on demand, so a
 refused scan permission can never break sync.
 
-OCR downloads its engine from a CDN on first use, then caches. Everything else works offline.
+Apart from Google sign-in and Drive, once you connect them, the app makes no third-party requests. The OCR engine, its language packs and the PDF reader are
+served from this site (`vendor/`, licences beside them) and cached after first use, so everything
+works offline once used. Sheet fonts and the interface font come from adervec.github.io.
+
+**Erase everything** under Setup → Your data removes this app's sessions, projects, thumbnails,
+settings and coach-folder link from the device and disconnects Drive. It never touches the copy
+in your Drive, or other apps on adervec.github.io.
 
 ## Running it
 

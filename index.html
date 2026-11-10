@@ -799,6 +799,10 @@
       <button class="act" id="copy-summary">Copy progress summary</button>
       <input type="file" id="import-file" accept="application/json,.json" class="hidden">
     </div>
+    <div class="fieldrow">
+      <button class="act" id="erase-all">Erase everything on this device</button>
+      <span class="d">Sessions, projects, thumbnails, settings and the coach folder link. Your Google Drive copy is not touched.</span>
+    </div>
     <p class="subline" id="data-status"></p>
   </div>
   <pre id="selftest"></pre>
@@ -1335,11 +1339,16 @@ function loadScript(src) {
     document.head.appendChild(s);
   });
 }
+// house standard: no third-party requests — OCR and PDF engines are vendored (vendor/, licences beside them)
+const VENDOR = new URL("vendor/", location.href).href;
 async function ocrPage(canvas, lang = "eng") {
   if (!window.Tesseract)
-    await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    await loadScript(VENDOR + "tesseract/tesseract.min.js");
   // the language pack is per script — reading Devanagari with the English model scores noise
-  const worker = await Tesseract.createWorker(lang);
+  // ponytail: cacheMethod none — the service worker already caches same-origin vendor files
+  const worker = await Tesseract.createWorker(lang, 1, {
+    workerPath: VENDOR + "tesseract/worker.min.js", corePath: VENDOR + "tesseract", langPath: VENDOR + "tessdata", cacheMethod: "none",
+  });
   const { data } = await worker.recognize(canvas);
   await worker.terminate();
   return data;
@@ -1544,8 +1553,8 @@ async function driveSync({ silent = false } = {}) {
 // time you stepped to the next page.
 async function ensurePdfjs() {
   if (window.pdfjsLib) return;
-  await loadScript("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  await loadScript(VENDOR + "pdfjs/pdf.min.js");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = VENDOR + "pdfjs/pdf.worker.min.js";
 }
 let pdfCache = null; // { key, doc } — one document at a time is enough; batches are opened one by one
 async function pdfDocFor(key, buf) {
@@ -2082,9 +2091,9 @@ const SHEET_INK = { base: "#8d97a3", mid: "#c2c9d1", edge: "#dfe4e9", slant: "#e
 // fountain pen's ink hides; dotted and outline are tracing styles rather than colours.
 const TRACE_INK = { grey: "#6b7580", dotted: "#6b7580", outline: "#6b7580", cyan: "#00a6e0", sepia: "#8b5a2b" };
 // A serif is a poor model of handwriting. Andika is a school print hand and Cedarville a plain
-// cursive, both OFL and fetched from Google Fonts on first use; offline the stack falls back.
+// cursive, both OFL and served from adervec.github.io/fonts on first use; offline the stack falls back.
 const SHEET_FONTS = { serif: "Georgia, 'Times New Roman', serif", print: "Andika, Verdana, sans-serif", cursive: "'Cedarville Cursive', 'Segoe Script', 'Brush Script MT', cursive" };
-const FONT_URL = "https://fonts.googleapis.com/css2?family=Andika&family=Cedarville+Cursive&display=swap";
+const FONT_URLS = ["https://adervec.github.io/fonts/andika.css", "https://adervec.github.io/fonts/cedarville-cursive.css"];
 // How many ruled lines fit one page at a given x-height; `k` is the line height in x-heights
 // (2.75 for the usual asc + desc + gap, taller for Copperplate's 3:2:3 rules).
 // 240mm, not the full A4 height: the sheet must also fit US Letter's shorter printable
@@ -2959,8 +2968,7 @@ let fontsAsked = false;
 function ensureFonts() {
   if (fontsAsked) return;
   fontsAsked = true;
-  const l = document.createElement("link"); l.rel = "stylesheet"; l.href = FONT_URL;
-  document.head.appendChild(l);
+  for (const href of FONT_URLS) document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href }));
   for (const [fam, key] of [["Andika", "print"], ["'Cedarville Cursive'", "cursive"]])
     document.fonts?.load(`16px ${fam}`).then(() => { delete xRatioCache[SHEET_FONTS[key]]; paintSheet(); }, () => {});
 }
@@ -4517,6 +4525,30 @@ $("export").onclick = () => {
   $("data-status").textContent = `Exported ${loadSessions().length} sessions.`;
 };
 $("import-btn").onclick = () => $("import-file").click();
+// Every app shares the adervec.github.io origin, so erase names this app's keys — never localStorage.clear().
+// The house font choice (maker-font) is shared across apps and stays.
+const ownKey = k => k.startsWith("hwh-") || k === "hh-coach-reply" || k.startsWith("cowork-applied:handwritinghelper:");
+function eraseKeys() {
+  driveTok = null; driveAcct = null; drivePic = null; // disconnect Drive on this device; the Drive copy is untouched
+  for (const k of Object.keys(localStorage)) if (ownKey(k)) localStorage.removeItem(k);
+}
+async function eraseAll() {
+  eraseKeys();
+  await coachPanel?.forget?.().catch(() => {}); // drops this app's folder handle from cowork.js's IndexedDB
+  for (const k of await caches?.keys?.().catch(() => []) ?? []) if (k.startsWith("hwh-cache-")) await caches.delete(k);
+}
+$("erase-all").onclick = async () => {
+  const b = $("erase-all");
+  // ponytail: two-tap confirm, as for deletes — confirm() is silently blocked in sandboxed iframes
+  if (b.dataset.armed !== "1") {
+    b.dataset.armed = "1"; b.textContent = "Tap again to erase everything — this cannot be undone";
+    setTimeout(() => { b.dataset.armed = ""; b.textContent = "Erase everything on this device"; }, 6000);
+    return;
+  }
+  await eraseAll();
+  $("data-status").textContent = "Erased on this device. Drive is disconnected; the copy in your Drive was not touched.";
+  setTimeout(() => location.reload(), 1500);
+};
 $("import-file").onchange = e => {
   const f = e.target.files[0];
   e.target.value = "";
@@ -5352,6 +5384,21 @@ if (location.search.includes("selftest")) {
     pass = check("drive account: no picture, no img", !$("drive-account").querySelector("img")) && pass;
     [DRIVE.linked, driveAcct, drivePic] = was; syncUi(); }
 
+  // --- no third-party requests ---
+  pass = check("no third-party requests: no CDN or Google Fonts URL in the page", !/cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|unpkg\.com|cdnjs\./.test(document.documentElement.innerHTML)
+    && FONT_URLS.every(u => u.startsWith("https://adervec.github.io/")) && VENDOR.startsWith(location.href.replace(/[^/]*$/, ""))) && pass;
+
+  // --- erase everything ---
+  { const keep = {}; for (const k of Object.keys(localStorage)) keep[k] = localStorage.getItem(k);
+    localStorage.setItem("hwh-erase-probe", "1"); localStorage.setItem("hh-coach-reply-x", "other"); localStorage.setItem("someone-else", "1");
+    const t = [driveTok, driveAcct, drivePic]; driveAcct = "x";
+    eraseKeys();
+    pass = check("erase: removes this app's keys, keeps other apps' and the shared font", !localStorage.getItem("hwh-erase-probe") && !localStorage.getItem("hwh-sessions")
+      && localStorage.getItem("someone-else") === "1" && localStorage.getItem("hh-coach-reply-x") === "other" && (keep["maker-font"] == null || localStorage.getItem("maker-font") === keep["maker-font"]) && driveAcct === null) && pass;
+    localStorage.removeItem("someone-else"); localStorage.removeItem("hh-coach-reply-x");
+    for (const [k, v] of Object.entries(keep)) localStorage.setItem(k, v);
+    [driveTok, driveAcct, drivePic] = t; }
+
   // --- house font ---
   const fam = getComputedStyle(document.body).fontFamily;
   pass = check("house font: body is Atkinson Hyperlegible by default, got " + fam.split(",")[0], /^"?Atkinson Hyperlegible/.test(fam) || (window.appFont && appFont.get() !== "atkinson")) && pass;
@@ -5481,7 +5528,7 @@ if (location.search.includes("selftest")) {
     showTab("setup");
   })();
 
-  if (location.search.includes("pdf")) { // ?selftest=pdf — pulls pdf.js from the CDN, so opt-in
+  if (location.search.includes("pdf")) { // ?selftest=pdf — loads the vendored pdf.js (1.4 MB), so opt-in
     document.title = "SELFTEST RUNNING";
     // A minimal but valid PDF with computed xref offsets, so pdf.js parses it properly rather
     // than falling back to recovery. Page 12 deliberately repeats page 5's content — that is

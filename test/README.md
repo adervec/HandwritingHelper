@@ -5,8 +5,8 @@ Everything lives in the app itself so the tests exercise the real code rather th
 | URL | What it covers | Network |
 |---|---|---|
 | `index.html?selftest` | The whole app: image analysis across nine scripts, OCR parsing, Drive sync merge semantics, projects, drills, guide-sheet geometry, plans and programs, derived stats, charts, duplicate hashing. ~213 checks. | no |
-| `index.html?selftest=ocr` | Adds the Tesseract round-trip: renders a dated page, reads it back, checks the parsed date and duration. | yes (CDN) |
-| `index.html?selftest=pdf` | Adds the batch-PDF path: builds a 40-page PDF in memory with a duplicate planted in it, renders every page through the app's own `pdfDocFor`/`pdfRender`, and checks page count, the document cache, thumbnail and full-res sizing, and that the planted duplicate is the only one found. | yes (CDN) |
+| `index.html?selftest=ocr` | Adds the Tesseract round-trip: renders a dated page, reads it back, checks the parsed date and duration. | no (vendored, but loads ~4 MB on first run) |
+| `index.html?selftest=pdf` | Adds the batch-PDF path: builds a 40-page PDF in memory with a duplicate planted in it, renders every page through the app's own `pdfDocFor`/`pdfRender`, and checks page count, the document cache, thumbnail and full-res sizing, and that the planted duplicate is the only one found. | no (vendored, but loads ~4 MB on first run) |
 
 The page title becomes `SELFTEST PASS` or `SELFTEST FAIL`, and the Setup tab lists every check.
 
