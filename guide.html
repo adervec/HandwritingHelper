@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2a78d6">
 <title>Handwriting Helper — Reference</title>
+<script src="https://adervec.github.io/font.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -25,7 +26,7 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--page); color: var(--ink-1);
-    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 16px/1.6 var(--app-font, system-ui, -apple-system, "Segoe UI", sans-serif);
     -webkit-text-size-adjust: 100%;
   }
   main { max-width: 720px; margin: 0 auto; padding: 20px 18px 80px; }

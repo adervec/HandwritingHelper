@@ -7,6 +7,8 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Handwriting Helper</title>
+<!-- house font: Atkinson Hyperlegible by default, reader-changeable under Setup (shared across apps on this origin) -->
+<script src="https://adervec.github.io/font.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -43,7 +45,7 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--page); color: var(--ink-1);
-    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 15px/1.45 var(--app-font, system-ui, -apple-system, "Segoe UI", sans-serif);
     -webkit-text-size-adjust: 100%;
   }
   main { max-width: 860px; margin: 0 auto; padding: 16px 16px 96px; }
@@ -755,6 +757,12 @@
     <div class="fieldrow">
       <span class="flab">Nib / x-height</span>
       <input type="number" id="xh-pref" min="4" max="16" step="1" style="width:70px"> mm on printed sheets
+    </div>
+    <div class="fieldrow">
+      <span class="flab">Font</span>
+      <!-- ponytail: label=" " keeps the shared picker's own label out of the row; .flab carries it -->
+      <app-font-picker label=" "></app-font-picker>
+      <span class="d">interface only — sheets keep their own; applies to every app by this maker on this device</span>
     </div>
   </div>
 
@@ -5330,6 +5338,10 @@ if (location.search.includes("selftest")) {
   pass = check("brief: empty history still builds", buildBrief([], deriveStats([])).meta.gaps.length > 0 && briefMarkdown(buildBrief([], deriveStats([]))).includes("No page analyzed")) && pass;
   pass = check("brief: the folder files are brief.json, BRIEF.md and recent.json", Object.keys(briefFiles(brief, bS)).sort().join() === "BRIEF.md,brief.json,recent.json") && pass;
   pass = check("brief: coach channel is told to start from BRIEF.md", COACH_INSTRUCTIONS.includes("../BRIEF.md") && COWORK_README.includes("BRIEF.md")) && pass;
+
+  // --- house font ---
+  const fam = getComputedStyle(document.body).fontFamily;
+  pass = check("house font: body is Atkinson Hyperlegible by default, got " + fam.split(",")[0], /^"?Atkinson Hyperlegible/.test(fam) || (window.appFont && appFont.get() !== "atkinson")) && pass;
 
   // --- report ---
   const rep = reportHtml(stS, st, {}, "R");
