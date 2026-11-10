@@ -133,6 +133,7 @@
   .fieldrow .flab { min-width: 92px; }
   .fieldrow label { display: flex; align-items: center; gap: 4px; }
   .fieldrow .d { color: var(--ink-muted); font-size: 12px; }
+  #drive-account .avatar { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
   input[type="date"], input[type="number"], input[type="text"], select {
     font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 7px;
     border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1);
@@ -1436,6 +1437,7 @@ const loadGis = () => (gisLoaded ||= window.google?.accounts?.oauth2
 
 let driveTok = null;   // { value, exp, scope } — memory only
 let driveAcct = null;  // signed-in account, cosmetic
+let drivePic = null;   // its profile picture URL, if Google gave one
 const tokenCovers = need => !!driveTok && driveTok.exp > Date.now() + 60000 &&
   need.split(" ").every(s => driveTok.scope.includes(s));
 
@@ -1466,7 +1468,7 @@ async function driveAuth(scope = SCOPE_SYNC, { silent = false } = {}) {
 async function fetchAccount() { // best-effort, display only
   try {
     const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + driveTok.value } });
-    if (r.ok) { const j = await r.json(); driveAcct = j.email || j.name || "Google account"; }
+    if (r.ok) { const j = await r.json(); driveAcct = j.email || j.name || "Google account"; drivePic = j.picture || null; }
   } catch (e) { /* cosmetic */ }
   return driveAcct;
 }
@@ -4564,7 +4566,9 @@ function syncUi(msg) {
   $("drive-connect").classList.toggle("hidden", on);
   $("drive-sync").classList.toggle("hidden", !on);
   $("drive-signout").classList.toggle("hidden", !on);
-  $("drive-account").textContent = on && driveAcct ? driveAcct : "";
+  const acct = $("drive-account");
+  acct.textContent = on && driveAcct ? driveAcct : "";
+  if (on && driveAcct && drivePic) acct.prepend(Object.assign(new Image(24, 24), { src: drivePic, alt: "", referrerPolicy: "no-referrer", className: "avatar" }));
   $("sync-status").textContent = typeof msg === "string" ? msg
     : DRIVE.syncedAt ? "Last synced " + new Date(DRIVE.syncedAt).toLocaleString() : "";
 }
@@ -4578,7 +4582,7 @@ async function runSync(label) {
 $("drive-connect").onclick = () => runSync("Connecting…");
 $("drive-sync").onclick = () => runSync("Syncing…");
 $("drive-signout").onclick = () => {
-  driveTok = null; driveAcct = null;
+  driveTok = null; driveAcct = null; drivePic = null;
   DRIVE.linked = false; saveDrive();
   syncUi("Signed out on this device. Your saved sessions stay here.");
 };
@@ -5338,6 +5342,15 @@ if (location.search.includes("selftest")) {
   pass = check("brief: empty history still builds", buildBrief([], deriveStats([])).meta.gaps.length > 0 && briefMarkdown(buildBrief([], deriveStats([]))).includes("No page analyzed")) && pass;
   pass = check("brief: the folder files are brief.json, BRIEF.md and recent.json", Object.keys(briefFiles(brief, bS)).sort().join() === "BRIEF.md,brief.json,recent.json") && pass;
   pass = check("brief: coach channel is told to start from BRIEF.md", COACH_INSTRUCTIONS.includes("../BRIEF.md") && COWORK_README.includes("BRIEF.md")) && pass;
+
+  // --- drive account picture ---
+  { const was = [DRIVE.linked, driveAcct, drivePic]; const px = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+    DRIVE.linked = true; driveAcct = "someone@example.com"; drivePic = px; syncUi();
+    const img = $("drive-account").querySelector("img.avatar");
+    pass = check("drive account: picture beside the name", img && img.src === px && img.referrerPolicy === "no-referrer" && $("drive-account").textContent === "someone@example.com") && pass;
+    drivePic = null; syncUi();
+    pass = check("drive account: no picture, no img", !$("drive-account").querySelector("img")) && pass;
+    [DRIVE.linked, driveAcct, drivePic] = was; syncUi(); }
 
   // --- house font ---
   const fam = getComputedStyle(document.body).fontFamily;
