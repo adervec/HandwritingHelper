@@ -1,5 +1,6 @@
 [
   { "date": "2026-11-10", "items": [
+    "Coach replies now wait for you to review them before they replace your current advice, and can be undone.",
     "Your Google profile picture now shows beside your account when Drive sync is connected.",
     "Reading your page (OCR) and opening scanned PDFs now work entirely from this site, and offline once used.",
     "New under Setup → Your data: Erase everything on this device. Your Drive copy is never touched."

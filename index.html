@@ -3286,18 +3286,31 @@ function coachFiles() {
   return { "coach/request.json": coworkEnvelope("handwritinghelper-coach", { stats, recent }), "coach/INSTRUCTIONS.md": COACH_INSTRUCTIONS,
     "README.md": COWORK_README, ...briefFiles(brief, S) };
 }
+// cowork v2 (house standard): the reply is reviewed before it replaces the current advice, and can be
+// undone from the panel's history. Undo data is JSON. The brief stays our own writer (writeBriefFiles).
+const COACH_KEY = "hh-coach-reply";
+function coachChannel(show) {
+  const get = () => { try { return localStorage.getItem(COACH_KEY) || ""; } catch { return ""; } };
+  const put = t => { try { localStorage.setItem(COACH_KEY, t); } catch { /* quota */ } show(t); };
+  return {
+    label: "Handwriting coach",
+    preview: reply => [{ id: "reply", label: "Show this advice (replaces the current one)", detail: coworkReplyText(reply).slice(0, 400) }],
+    apply: reply => { const prev = get(); put(coworkReplyText(reply)); return { summary: "new coaching advice shown", undo: { prev } }; },
+    undo: data => put(data?.prev || ""),
+  };
+}
 function mountCoach() {
   const host = $("coach-host"), out = $("coach-reply");
   if (!host || coachMounted) return;
   coachMounted = true;
   const show = text => { out.textContent = text; out.classList.toggle("hidden", !text); };
-  try { show(localStorage.getItem("hh-coach-reply") || ""); } catch { /* private mode */ }
+  try { show(localStorage.getItem(COACH_KEY) || ""); } catch { /* private mode */ }
   loadCowork().then(cw => {
     if (!cw || host.childElementCount) return;
     coachPanel = cw.mount(host, {
       app: "handwritinghelper", manifest: coworkManifest("handwritinghelper"),
       files: coachFiles,
-      apply: (_ch, reply) => { const text = coworkReplyText(reply); try { localStorage.setItem("hh-coach-reply", text); } catch { /* quota */ } show(text); },
+      channels: { coach: coachChannel(show) },
     });
   });
 }
@@ -5402,6 +5415,18 @@ if (location.search.includes("selftest")) {
 
   // --- what's new (whatsnew.json and THIRD-PARTY-NOTICES.md themselves are checked by selftest.mjs) ---
   pass = check("whatsnew: declared with <meta name=app-whatsnew>", document.querySelector('meta[name="app-whatsnew"]')?.content === "whatsnew.json") && pass;
+
+  // --- cowork v2 coach channel: preview, apply, undo ---
+  { let saved = null; try { saved = localStorage.getItem(COACH_KEY); } catch {}
+    let shown = null; const ch = coachChannel(t => { shown = t; });
+    try { localStorage.setItem(COACH_KEY, "old advice"); } catch {}
+    const reply = { kind: "coach-reply", payload: { text: "Slow the downstrokes." } };
+    const pv = ch.preview(reply), res = ch.apply(reply, ["reply"]);
+    const applied = shown, undoJson = JSON.parse(JSON.stringify(res.undo));
+    ch.undo(undoJson);
+    pass = check("cowork v2: coach preview, apply and JSON undo", pv.length === 1 && pv[0].id === "reply" && pv[0].detail.length <= 400
+      && applied === coworkReplyText(reply) && applied.length > 0 && typeof res.summary === "string" && shown === "old advice" && localStorage.getItem(COACH_KEY) === "old advice") && pass;
+    try { if (saved == null) localStorage.removeItem(COACH_KEY); else localStorage.setItem(COACH_KEY, saved); } catch {} }
 
   // --- house font ---
   const fam = getComputedStyle(document.body).fontFamily;
