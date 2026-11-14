@@ -366,6 +366,7 @@
     <span class="pill" id="hdr-streak"></span>
     <a class="act" href="guide.html" title="Reference: photographing pages, the scores, posture, troubleshooting"
        style="text-decoration:none;display:inline-block">?</a>
+    <app-account title="Google Drive sync"></app-account>
     <button class="act" id="theme-btn" title="Light / dark / system">◐</button>
   </div>
 </header>
@@ -1448,6 +1449,7 @@ const loadGis = () => (gisLoaded ||= window.google?.accounts?.oauth2
 let driveTok = null;   // { value, exp, scope } — memory only
 let driveAcct = null;  // signed-in account, cosmetic
 let drivePic = null;   // its profile picture URL, if Google gave one
+document.addEventListener('app-account-click', () => { const d = document.getElementById('drive-account'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 const tokenCovers = need => !!driveTok && driveTok.exp > Date.now() + 60000 &&
   need.split(" ").every(s => driveTok.scope.includes(s));
 
@@ -1478,7 +1480,7 @@ async function driveAuth(scope = SCOPE_SYNC, { silent = false } = {}) {
 async function fetchAccount() { // best-effort, display only
   try {
     const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + driveTok.value } });
-    if (r.ok) { const j = await r.json(); driveAcct = j.email || j.name || "Google account"; drivePic = j.picture || null; }
+    if (r.ok) { const j = await r.json(); driveAcct = j.email || j.name || "Google account"; drivePic = j.picture || null; window.appFont?.setAccount({ name: j.name || "", email: j.email || "", picture: j.picture || "" }); }
   } catch (e) { /* cosmetic */ }
   return driveAcct;
 }
@@ -4543,7 +4545,7 @@ $("import-btn").onclick = () => $("import-file").click();
 // The house font choice (maker-font) is shared across apps and stays.
 const ownKey = k => k.startsWith("hwh-") || k === "hh-coach-reply" || k.startsWith("cowork-applied:handwritinghelper:");
 function eraseKeys() {
-  driveTok = null; driveAcct = null; drivePic = null; // disconnect Drive on this device; the Drive copy is untouched
+  driveTok = null; driveAcct = null; drivePic = null; window.appFont?.setAccount(null); // disconnect Drive on this device; the Drive copy is untouched
   for (const k of Object.keys(localStorage)) if (ownKey(k)) localStorage.removeItem(k);
 }
 async function eraseAll() {
@@ -4628,7 +4630,7 @@ async function runSync(label) {
 $("drive-connect").onclick = () => runSync("Connecting…");
 $("drive-sync").onclick = () => runSync("Syncing…");
 $("drive-signout").onclick = () => {
-  driveTok = null; driveAcct = null; drivePic = null;
+  driveTok = null; driveAcct = null; drivePic = null; window.appFont?.setAccount(null);
   DRIVE.linked = false; saveDrive();
   syncUi("Signed out on this device. Your saved sessions stay here.");
 };

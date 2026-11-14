@@ -1,21 +1,36 @@
 [
-  { "date": "2026-11-10", "items": [
-    "Coach replies now wait for you to review them before they replace your current advice, and can be undone.",
-    "Your Google profile picture now shows beside your account when Drive sync is connected.",
-    "Reading your page (OCR) and opening scanned PDFs now work entirely from this site, and offline once used.",
-    "New under Setup → Your data: Erase everything on this device. Your Drive copy is never touched."
-  ] },
-  { "date": "2026-11-09", "items": [
-    "The app now uses Atkinson Hyperlegible, an easy-to-read font. Choose another under Setup → Font.",
-    "Connect a folder under Progress → Coach and the app keeps a short summary there for your morning brief."
-  ] },
-  { "date": "2026-11-08", "items": [
-    "Practice sheets can carry model text: your own passage, a classic, or the letters you write worst.",
-    "New rulings: Copperplate, Spencerian, Seyès, dot grid, square grid and letter boxes, portrait or landscape.",
-    "Show a sheet full screen for copying from a tablet, or save it as a notebook template.",
-    "Dictate reads the text aloud so you write from hearing, then scores how much reads back.",
-    "Each printed sheet has a small header that OCR reads back to tag the drill, date and hand.",
-    "Today names your weakest letters and shows a before-and-after card when you write two pages in a day.",
-    "Progress shows how scores fall down a page, and Print report makes a one-page summary."
-  ] }
+ {
+  "date": "2026-11-13",
+  "items": [
+   "While Google Drive sync is on, your Google picture now sits at the top of the app on every screen, so you can always see which account is syncing. Tap it to open the sync settings."
+  ]
+ },
+ {
+  "date": "2026-11-10",
+  "items": [
+   "Coach replies now wait for you to review them before they replace your current advice, and can be undone.",
+   "Your Google profile picture now shows beside your account when Drive sync is connected.",
+   "Reading your page (OCR) and opening scanned PDFs now work entirely from this site, and offline once used.",
+   "New under Setup → Your data: Erase everything on this device. Your Drive copy is never touched."
+  ]
+ },
+ {
+  "date": "2026-11-09",
+  "items": [
+   "The app now uses Atkinson Hyperlegible, an easy-to-read font. Choose another under Setup → Font.",
+   "Connect a folder under Progress → Coach and the app keeps a short summary there for your morning brief."
+  ]
+ },
+ {
+  "date": "2026-11-08",
+  "items": [
+   "Practice sheets can carry model text: your own passage, a classic, or the letters you write worst.",
+   "New rulings: Copperplate, Spencerian, Seyès, dot grid, square grid and letter boxes, portrait or landscape.",
+   "Show a sheet full screen for copying from a tablet, or save it as a notebook template.",
+   "Dictate reads the text aloud so you write from hearing, then scores how much reads back.",
+   "Each printed sheet has a small header that OCR reads back to tag the drill, date and hand.",
+   "Today names your weakest letters and shows a before-and-after card when you write two pages in a day.",
+   "Progress shows how scores fall down a page, and Print report makes a one-page summary."
+  ]
+ }
 ]
